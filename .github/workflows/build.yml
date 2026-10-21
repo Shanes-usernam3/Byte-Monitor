@@ -19,8 +19,12 @@ jobs:
         include:
           - os: windows-latest
             cmd: npm run dist:win
+            files: dist/*.exe
           - os: ubuntu-latest
             cmd: npm run dist:linux
+            files: |
+              dist/*.AppImage
+              dist/*.deb
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
@@ -40,8 +44,5 @@ jobs:
           tag_name: ${{ steps.ver.outputs.v }}
           name: Byte Monitor ${{ steps.ver.outputs.v }}
           prerelease: true
-          files: |
-            dist/*.exe
-            dist/*.AppImage
-            dist/*.deb
+          files: ${{ matrix.files }}
           fail_on_unmatched_files: true
