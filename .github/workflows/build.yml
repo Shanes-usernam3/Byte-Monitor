@@ -1,13 +1,20 @@
 name: Build Byte Monitor
 
+# Builds the Windows .exe (installer + portable) and Linux AppImage/.deb,
+# then attaches them to a GitHub Release named after package.json's version.
+# (Releases don't count against the Actions artifact storage quota.)
 on:
   push:
     tags: ['v*']
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: windows-latest
@@ -16,20 +23,25 @@ jobs:
             cmd: npm run dist:linux
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
       - run: npm ci
       - run: ${{ matrix.cmd }}
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - uses: actions/upload-artifact@v4
+      - name: Read version
+        id: ver
+        shell: bash
+        run: echo "v=v$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+      - name: Attach to release
+        uses: softprops/action-gh-release@v2
         with:
-          name: byte-monitor-${{ matrix.os }}
-          path: |
+          tag_name: ${{ steps.ver.outputs.v }}
+          name: Byte Monitor ${{ steps.ver.outputs.v }}
+          prerelease: true
+          files: |
             dist/*.exe
             dist/*.AppImage
             dist/*.deb
-          if-no-files-found: error
+          fail_on_unmatched_files: true
