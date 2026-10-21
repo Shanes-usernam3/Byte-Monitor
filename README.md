@@ -1,4 +1,4 @@
-# Byte Health
+# Byte Monitor
 
 Desktop hardware health monitor for **Windows and Linux** — a cleaner, simpler HWMonitor in the Byte theme, plus a WizTree-style space analyzer. Built for quick device health checks (HardPoint Networks).
 
@@ -20,16 +20,16 @@ npm run demo       # fake data, for UI work on a VM
 
 ## Build installers
 ```bash
-npm run dist:win     # dist/Byte Health Setup x.y.z.exe + portable .exe   (run on Windows)
+npm run dist:win     # dist/Byte Monitor Setup x.y.z.exe + portable .exe   (run on Windows)
 npm run dist:linux   # dist/*.AppImage + *.deb                            (run on Linux)
 ```
-Or push a tag (`git tag v0.1.0 && git push --tags`) / run the **Build Byte Health** workflow in GitHub Actions — it builds both and attaches them as artifacts.
+Or push a tag (`git tag v0.1.0 && git push --tags`) / run the **Build Byte Monitor** workflow in GitHub Actions — it builds both and attaches them as artifacts.
 
 ## Getting full sensor data
 | Data | Windows | Linux |
 |---|---|---|
 | Drive SMART detail | Install **smartmontools** (`winget install smartmontools.smartmontools`). App runs as admin automatically. | `sudo apt install smartmontools` (the .deb pulls it in). Run with `sudo` or SMART detail is limited. |
-| CPU temps & fans | Run **LibreHardwareMonitor** in the background (Options → Run on startup). Byte Health reads it automatically. Without it, Windows only reports ACPI temps (often blank). | `sudo apt install lm-sensors && sudo sensors-detect` |
+| CPU temps & fans | Run **LibreHardwareMonitor** in the background (Options → Run on startup). Byte Monitor reads it automatically. Without it, Windows only reports ACPI temps (often blank). | `sudo apt install lm-sensors && sudo sensors-detect` |
 | GPU (NVIDIA) | Works via `nvidia-smi` (ships with the driver) | Same |
 | Battery | Built in | Built in |
 

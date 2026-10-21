@@ -1,4 +1,4 @@
-// Byte Health — disk space scanner (runs in a worker thread so the UI never freezes)
+// Byte Monitor — disk space scanner (runs in a worker thread so the UI never freezes)
 // Walks a drive or folder, totals sizes per folder, keeps the biggest files,
 // and totals space by file extension. Stays on one filesystem (like WizTree
 // scanning a single drive) and never follows symlinks/junctions.

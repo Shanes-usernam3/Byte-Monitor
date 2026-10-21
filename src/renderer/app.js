@@ -1,4 +1,4 @@
-/* Byte Health — renderer */
+/* Byte Monitor — renderer */
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const fmt = (n, d = 0) => (n === null || n === undefined || Number.isNaN(n) ? '—' : Number(n).toFixed(d));
@@ -342,7 +342,7 @@ function buildReport() {
   const b = L.battery;
   return `<!doctype html><html><head><meta charset="utf-8"><title>Health report – ${esc(S.os.hostname)}</title>
 <style>body{font:14px/1.5 Segoe UI,system-ui,sans-serif;max-width:860px;margin:30px auto;color:#10202a;padding:0 20px}h1{margin:0}h2{border-bottom:2px solid #2ee6c9;padding-bottom:4px;margin-top:28px;font-size:17px}table{width:100%;border-collapse:collapse}td{padding:6px 8px;border-bottom:1px solid #e3ecef}td:first-child{color:#5b7380;width:42%}.score{font-size:42px;font-weight:700;color:#0a9e88}.muted{color:#5b7380}</style></head><body>
-<div class="muted">Byte Health · HardPoint Networks</div><h1>Device health report</h1><div class="muted">${esc(S.os.hostname)} · ${new Date().toLocaleString()}</div>
+<div class="muted">Byte Monitor · HardPoint Networks</div><h1>Device health report</h1><div class="muted">${esc(S.os.hostname)} · ${new Date().toLocaleString()}</div>
 <p><span class="score">${score ?? '—'}</span> / 100</p>
 <table>${parts.map((p) => row(p.name, `${p.val} — ${gradeWord(p.grade)}`)).join('')}</table>
 <h2>System</h2><table>${row('Make / model', `${S.system.manufacturer} ${S.system.model}`)}${row('OS', `${S.os.distro} ${S.os.release} (${S.os.arch})`)}${row('CPU', `${S.cpu.brand} · ${S.cpu.cores}C/${S.cpu.threads}T`)}${row('Memory', gb(L.mem.total))}${S.gpus.map((g) => row('GPU', g.model)).join('')}</table>

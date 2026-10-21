@@ -1,7 +1,7 @@
 {
-  "name": "byte-health",
+  "name": "byte-monitor",
   "version": "0.1.0",
-  "description": "Byte Health — desktop hardware health monitor by HardPoint Networks",
+  "description": "Byte Monitor — desktop hardware health & space monitor by HardPoint Networks",
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",
@@ -21,10 +21,10 @@
     "electron": "^44.9.3",
     "electron-builder": "^26.15.3"
   },
-  "productName": "Byte Health",
+  "productName": "Byte Monitor",
   "build": {
-    "appId": "ca.hardpointnetworks.bytehealth",
-    "productName": "Byte Health",
+    "appId": "ca.hardpointnetworks.bytemonitor",
+    "productName": "Byte Monitor",
     "directories": {
       "output": "dist"
     },
@@ -44,7 +44,7 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "shortcutName": "Byte Health"
+      "shortcutName": "Byte Monitor"
     },
     "linux": {
       "target": [
