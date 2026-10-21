@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;" />
+  <title>Byte Health</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <aside class="side">
+    <div class="brand">
+      <div class="logo">
+        <svg viewBox="0 0 32 32" aria-hidden="true"><rect x="3" y="3" width="26" height="26" rx="7" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="M8 17h4l2-5 4 10 2-5h4" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </div>
+      <div><div class="brand-name">Byte <b>Health</b></div><div class="brand-sub">HardPoint Networks</div></div>
+    </div>
+    <nav id="nav">
+      <button data-page="overview" class="active"><span class="ico">◉</span>Overview</button>
+      <button data-page="thermals"><span class="ico">🌡</span>Sensors</button>
+      <button data-page="storage"><span class="ico">⛁</span>Storage</button>
+      <button data-page="space"><span class="ico">▦</span>Space</button>
+      <button data-page="battery"><span class="ico">⚡</span>Battery</button>
+      <button data-page="system"><span class="ico">▣</span>System</button>
+    </nav>
+    <div class="side-foot">
+      <button id="btnReport" class="btn primary">Save health report</button>
+      <div class="tiny" id="srcNote"></div>
+    </div>
+  </aside>
+
+  <main>
+    <header class="top">
+      <div>
+        <div class="eyebrow" id="hostLine">Scanning…</div>
+        <h1 id="pageTitle">Device overview</h1>
+      </div>
+      <div class="top-right">
+        <span class="badge demo hidden" id="demoBadge">DEMO DATA</span>
+        <span class="live-dot"></span><span class="tiny" id="clock">live</span>
+      </div>
+    </header>
+
+    <!-- OVERVIEW -->
+    <section class="page active" id="page-overview">
+      <div class="grid g-hero">
+        <div class="card hero">
+          <div class="ring-wrap" id="scoreRing"></div>
+          <div class="hero-text">
+            <div class="eyebrow">Overall health</div>
+            <div class="hero-verdict" id="verdict">—</div>
+            <ul class="checks" id="checks"></ul>
+          </div>
+        </div>
+        <div class="card stat" id="statCpu"></div>
+        <div class="card stat" id="statGpu"></div>
+        <div class="card stat" id="statMem"></div>
+      </div>
+
+      <div class="grid g-mid">
+        <div class="card chart-card">
+          <div class="card-head"><h3>CPU activity</h3><div class="legend"><span class="sw teal"></span>Load %<span class="sw orange"></span>Temp °C</div></div>
+          <canvas id="chart" height="190"></canvas>
+        </div>
+        <div class="card" id="batteryMini"></div>
+      </div>
+
+      <div class="grid g-low">
+        <div class="card"><div class="card-head"><h3>Drives</h3><button class="link" data-goto="storage">Details →</button></div><div id="diskMini"></div></div>
+        <div class="card"><div class="card-head"><h3>CPU cores</h3><span class="tiny" id="ghz"></span></div><div class="cores" id="cores"></div></div>
+        <div class="card"><div class="card-head"><h3>Fans</h3></div><div id="fans"></div></div>
+      </div>
+    </section>
+
+    <!-- SENSORS -->
+    <section class="page" id="page-thermals">
+      <div class="card">
+        <div class="card-head"><h3>All sensors</h3><button class="btn ghost" id="btnResetMinMax">Reset min / max</button></div>
+        <table class="tbl" id="sensorTable">
+          <thead><tr><th>Sensor</th><th>Current</th><th>Min</th><th>Max</th><th class="barcol"></th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- STORAGE -->
+    <section class="page" id="page-storage">
+      <div id="diskCards" class="stack"></div>
+      <div class="card"><div class="card-head"><h3>Volumes</h3></div><div id="volumes"></div></div>
+    </section>
+
+    <!-- SPACE (WizTree-style) -->
+    <section class="page" id="page-space">
+      <div class="card sp-toolbar">
+        <div class="sp-targets" id="spTargets"></div>
+        <div class="sp-actions">
+          <button class="btn ghost" id="spPick">Choose folder…</button>
+          <button class="btn primary" id="spScan">Scan</button>
+          <button class="btn ghost hidden" id="spCancel">Cancel</button>
+        </div>
+        <div class="sp-progress hidden" id="spProgress"><div class="sp-spin"></div><span id="spProgText"></span></div>
+      </div>
+      <div id="spResults" class="hidden">
+        <div class="sp-crumbs-row">
+          <div class="sp-crumbs" id="spCrumbs"></div>
+          <div class="tiny" id="spSummary"></div>
+          <button class="btn ghost" id="spReveal">Open in file manager</button>
+        </div>
+        <div class="grid g-space">
+          <div class="card sp-map-card"><div class="treemap" id="spMap"></div></div>
+          <div class="card sp-list-card"><div class="card-head"><h3>Biggest items here</h3><span class="tiny">click a folder to open it</span></div><div class="sp-list" id="spList"></div></div>
+        </div>
+        <div class="grid g-2">
+          <div class="card"><div class="card-head"><h3>Largest files</h3><span class="tiny">whole scan</span></div><div class="sp-files" id="spFiles"></div></div>
+          <div class="card"><div class="card-head"><h3>Space by file type</h3><span class="tiny">whole scan</span></div><div id="spTypes"></div></div>
+        </div>
+      </div>
+      <div class="card sp-empty" id="spEmpty">
+        <div class="eyebrow">Space analyzer</div>
+        <h2>See exactly what is filling your drives</h2>
+        <p class="tiny">Pick a drive or folder above and press Scan. You'll get a map of every folder sized by how much space it uses, the biggest files, and which file types take up the most room. Nothing is changed or deleted.</p>
+      </div>
+    </section>
+
+    <!-- BATTERY -->
+    <section class="page" id="page-battery">
+      <div id="batteryFull"></div>
+    </section>
+
+    <!-- SYSTEM -->
+    <section class="page" id="page-system">
+      <div class="grid g-2" id="sysCards"></div>
+    </section>
+  </main>
+
+  <div class="toast hidden" id="toast"></div>
+  <script src="app.js"></script>
+  <script src="space.js"></script>
+</body>
+</html>

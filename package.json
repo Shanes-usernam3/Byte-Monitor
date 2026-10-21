@@ -1,0 +1,67 @@
+{
+  "name": "byte-health",
+  "version": "0.1.0",
+  "description": "Byte Health — desktop hardware health monitor by HardPoint Networks",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "demo": "electron . --demo",
+    "dist:win": "electron-builder --win --publish never",
+    "dist:linux": "electron-builder --linux --publish never"
+  },
+  "author": {
+    "name": "HardPoint Networks",
+    "email": "skahnapace@outlook.com"
+  },
+  "license": "UNLICENSED",
+  "dependencies": {
+    "systeminformation": "^5.33.16"
+  },
+  "devDependencies": {
+    "electron": "^44.9.3",
+    "electron-builder": "^26.15.3"
+  },
+  "productName": "Byte Health",
+  "build": {
+    "appId": "ca.hardpointnetworks.bytehealth",
+    "productName": "Byte Health",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "build/icon.png",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "icon": "build/icon.png",
+      "requestedExecutionLevel": "requireAdministrator"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "shortcutName": "Byte Health"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "icon": "build/icon.png",
+      "category": "System",
+      "maintainer": "HardPoint Networks",
+      "synopsis": "Hardware health monitor"
+    },
+    "deb": {
+      "depends": [
+        "smartmontools",
+        "lm-sensors"
+      ]
+    }
+  },
+  "homepage": "https://github.com/shanes-usernam3/Byte-Monitor"
+}
