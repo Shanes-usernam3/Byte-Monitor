@@ -1,4 +1,4 @@
-name: Build Byte Health
+name: Build Byte Monitor
 
 on:
   push:
@@ -27,7 +27,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/upload-artifact@v4
         with:
-          name: byte-health-${{ matrix.os }}
+          name: byte-monitor-${{ matrix.os }}
           path: |
             dist/*.exe
             dist/*.AppImage

@@ -1,4 +1,4 @@
-/* Byte Health — Space analyzer (WizTree-style) */
+/* Byte Monitor — Space analyzer (WizTree-style) */
 (() => {
   const $ = (s) => document.querySelector(s);
   const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));

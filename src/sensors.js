@@ -1,4 +1,4 @@
-// Byte Health — hardware sensor layer (Windows + Linux)
+// Byte Monitor — hardware sensor layer (Windows + Linux)
 // Uses systeminformation for the bulk of data, plus small OS-specific extras:
 //   Linux:   /sys/class/hwmon fans, smartctl (via systeminformation) for SMART detail
 //   Windows: LibreHardwareMonitor WMI namespace (if LHM is running) for CPU temps + fans

@@ -5,7 +5,7 @@ const os = require('os');
 const { Worker } = require('worker_threads');
 const si = require('systeminformation');
 
-const DEMO = process.argv.includes('--demo') || process.env.BYTE_HEALTH_DEMO === '1';
+const DEMO = process.argv.includes('--demo') || process.env.BYTE_MONITOR_DEMO === '1';
 const sensors = DEMO ? require('./demo') : require('./sensors');
 
 let win;
@@ -17,7 +17,7 @@ function createWindow() {
     minWidth: 980,
     minHeight: 640,
     backgroundColor: '#070d12',
-    title: 'Byte Health',
+    title: 'Byte Monitor',
     icon: path.join(__dirname, '..', 'build', 'icon.png'),
     autoHideMenuBar: true,
     webPreferences: {
