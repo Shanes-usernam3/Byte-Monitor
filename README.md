@@ -23,7 +23,7 @@ npm run demo       # fake data, for UI work on a VM
 npm run dist:win     # dist/Byte Monitor Setup x.y.z.exe + portable .exe   (run on Windows)
 npm run dist:linux   # dist/*.AppImage + *.deb                            (run on Linux)
 ```
-Or push a tag (`git tag v0.1.0 && git push --tags`) / run the **Build Byte Monitor** workflow in GitHub Actions — it builds both and attaches them as artifacts.
+Or push a tag (`git tag v0.1.0 && git push --tags`) / run the **Build Byte Monitor** workflow in GitHub Actions — it builds both and attaches them to a pre-release under **Releases** (bump `version` in package.json for a new release).
 
 ## Getting full sensor data
 | Data | Windows | Linux |
