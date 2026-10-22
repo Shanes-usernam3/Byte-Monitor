@@ -25,14 +25,19 @@ function target(key, v) {
   if (tween.cur.get(key) == null) tween.cur.set(key, v);
 }
 const val = (key) => tween.cur.get(key);
-function stepTweens(dt) {
+function stepTweens(dt) { // returns true while anything is still moving
   const k = 1 - Math.exp(-dt / TAU);
+  let moving = false;
   for (const [key, t] of tween.tgt) {
     if (t == null) continue;
     const c = tween.cur.get(key);
+    if (c === t) continue;
     const n = c + (t - c) * k;
-    tween.cur.set(key, Math.abs(t - n) < 1e-4 ? t : n);
+    const done = Math.abs(t - n) <= Math.max(0.01, Math.abs(t) * 0.0005);
+    tween.cur.set(key, done ? t : n);
+    if (!done) moving = true;
   }
+  return moving;
 }
 const _txt = new WeakMap();
 function setText(el, s) { if (el && _txt.get(el) !== s) { el.textContent = s; _txt.set(el, s); } }
@@ -62,7 +67,7 @@ function ring({ value, max = 100, text, unit = '', grade = 'good', size = 150, s
     <filter id="${id}f"><feGaussianBlur stdDeviation="3"/></filter></defs>
     ${arc === 360 ? ringTicks(c, r, stroke) : ''}
     <circle cx="${c}" cy="${c}" r="${r}" fill="none" stroke="var(--bg)" stroke-width="${stroke}" stroke-dasharray="${span} ${circ}" transform="rotate(${rot} ${c} ${c})" stroke-linecap="round"/>
-    <circle cx="${c}" cy="${c}" r="${r}" fill="none" stroke="url(#${id})" stroke-width="${stroke}" stroke-opacity=".35" filter="url(#${id}f)" stroke-dasharray="${span * pct} ${circ}" transform="rotate(${rot} ${c} ${c})" stroke-linecap="round"/>
+    <circle cx="${c}" cy="${c}" r="${r}" fill="none" stroke="url(#${id})" stroke-width="${stroke + 7}" stroke-opacity=".16" stroke-dasharray="${span * pct} ${circ}" transform="rotate(${rot} ${c} ${c})" stroke-linecap="round"/>
     <circle cx="${c}" cy="${c}" r="${r}" fill="none" stroke="url(#${id})" stroke-width="${stroke}" stroke-dasharray="${span * pct} ${circ}" transform="rotate(${rot} ${c} ${c})" stroke-linecap="round"/>
     <text x="${c}" y="${c + (sub ? 2 : 8)}" text-anchor="middle" class="ring-num" font-size="${size * 0.22}">${esc(text)}<tspan class="ring-unit" font-size="${size * 0.1}" dx="2">${esc(unit)}</tspan></text>
     ${sub ? `<text x="${c}" y="${c + size * 0.17}" text-anchor="middle" class="ring-unit" font-size="${size * 0.075}" letter-spacing="1.5">${esc(sub)}</text>` : ''}
@@ -79,7 +84,7 @@ function makeGauge(host, { size = 150, stroke = 11, arc = 360, sub = '' } = {}) 
     <filter id="${id}f"><feGaussianBlur stdDeviation="3"/></filter></defs>
     ${arc === 360 ? ringTicks(c, r, stroke) : ''}
     ${circle(`stroke="var(--bg)" stroke-dasharray="${span} ${circ}"`)}
-    ${circle(`class="arc" stroke="url(#${id})" stroke-opacity=".35" filter="url(#${id}f)" stroke-dasharray="0 ${circ}"`)}
+    ${circle(`class="arc glow" stroke="url(#${id})" stroke-opacity=".16" stroke-width="${stroke + 7}" stroke-dasharray="0 ${circ}"`)}
     ${circle(`class="arc" stroke="url(#${id})" stroke-dasharray="0 ${circ}"`)}
     <text x="${c}" y="${c + 2}" text-anchor="middle" class="ring-num" font-size="${size * 0.22}"><tspan class="num">—</tspan><tspan class="ring-unit unit" font-size="${size * 0.1}" dx="2"></tspan></text>
     <text x="${c}" y="${c + size * 0.17}" text-anchor="middle" class="ring-unit subt" font-size="${size * 0.075}" letter-spacing="1.5">${esc(sub)}</text>
@@ -144,7 +149,7 @@ function overall() {
 
 // ---------- overview (built once, animated every frame) ----------
 const FAN_SVG = '<path fill="currentColor" d="M12 11a1 1 0 1 0 0 2 1 1 0 0 0 0-2Zm.5-9c4.5 0 4.6 3.6 2.3 4.8-1 .5-1.4 1.5-1.6 2.5.5.2 1 .5 1.4 1 3.7-2 7.4-1.1 7.4 3.2 0 4.5-3.5 4.6-4.8 2.3-.5-1-1.5-1.4-2.5-1.6-.2.5-.5 1-1 1.4 2 3.7 1.1 7.4-3.2 7.4-4.5 0-4.6-3.5-2.3-4.8 1-.5 1.4-1.5 1.6-2.5-.5-.2-1-.5-1.4-1-3.7 2-7.4 1.1-7.4-3.2 0-4.5 3.5-4.6 4.8-2.3.5 1 1.5 1.4 2.5 1.6.2-.5.5-1 1-1.4C7.3 5.6 8.2 2 12.5 2Z" opacity=".85"/>';
-const ov = { sig: null, html: {} };
+const ov = { sig: null, html: {}, fans: [] };
 const overviewSig = (L) => JSON.stringify([
   Math.min(L.cpu.coreLoads.length, 16), L.cpu.temp != null,
   L.gpus.map((g) => [g.model, g.temp != null, g.load != null]),
@@ -402,7 +407,7 @@ function renderSystem() {
 const CHART_WINDOW = 180000; // 3 minutes
 const chart = { hist: [], lastPush: 0, w: 0, h: 190, colors: null };
 function recordChart(now) {
-  if (now - chart.lastPush < 250) return;
+  if (now - chart.lastPush < 500) return;
   chart.lastPush = now;
   chart.hist.push({ t: now, 'cpu.load': val('cpu.load'), 'cpu.temp': val('cpu.temp') });
   while (chart.hist.length && now - chart.hist[0].t > CHART_WINDOW + 5000) chart.hist.shift();
@@ -462,7 +467,9 @@ function drawChart(now = performance.now()) {
       ctx.fillStyle = gr; ctx.fill();
     }
     path();
-    ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.shadowColor = color; ctx.shadowBlur = 8; ctx.stroke(); ctx.shadowBlur = 0;
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = color + '33'; ctx.lineWidth = 6; ctx.stroke(); // soft glow (cheap — no shadowBlur)
+    ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.stroke();
     const [lx, ly] = pts[pts.length - 1];
     ctx.beginPath(); ctx.arc(lx - 1, ly, 3.5, 0, Math.PI * 2); ctx.fillStyle = color; ctx.fill();
   };
@@ -472,17 +479,19 @@ function drawChart(now = performance.now()) {
 }
 
 // ---------- animation loop ----------
-let lastFrame = performance.now();
+// ~30 fps while values are moving, nothing at all while they're settled;
+// the chart (which scrolls ~3 px/s) only redraws ~12 times a second.
+let lastFrame = performance.now(), lastChart = 0;
 function frame(now) {
-  const dt = Math.min(100, now - lastFrame);
-  lastFrame = now;
-  stepTweens(dt);
-  recordChart(now);
-  if ($('#page-overview').classList.contains('active')) {
-    paintOverview(dt);
-    drawChart(now);
-  }
   requestAnimationFrame(frame);
+  const dt = now - lastFrame;
+  if (dt < 31) return;
+  lastFrame = now;
+  const moving = stepTweens(Math.min(100, dt));
+  recordChart(now);
+  if (!$('#page-overview').classList.contains('active')) return;
+  if (moving || ov.fans.length) paintOverview(Math.min(100, dt));
+  if (now - lastChart > 80) { lastChart = now; drawChart(now); }
 }
 
 // ---------- polling ----------
@@ -598,6 +607,6 @@ function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.re
   pollStorage();
   await pollLive();
   requestAnimationFrame(frame);
-  setInterval(pollLive, 500);
-  setInterval(pollStorage, 30000);
+  setInterval(pollLive, 1000);
+  setInterval(pollStorage, 120000);
 })();

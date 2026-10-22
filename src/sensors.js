@@ -6,6 +6,7 @@ const si = require('systeminformation');
 const fs = require('fs');
 const path = require('path');
 const { execFile } = require('child_process');
+const os = require('os');
 
 const isWin = process.platform === 'win32';
 const isLinux = process.platform === 'linux';
@@ -56,49 +57,116 @@ function linuxFans() {
   return out;
 }
 
-// Windows live sensors from ONE long-running PowerShell process (spawning
-// PowerShell per poll costs ~1s). Every ~0.8s it prints a JSON snapshot of:
-//   lhm/hw — LibreHardwareMonitor sensors + hardware (only if LHM is running)
-//   eng    — GPU engine utilisation (same counters Task Manager uses; works
-//            for integrated Intel/AMD GPUs with nothing installed)
-//   mem    — GPU adapter memory (dedicated + shared)
-// The perf classes are queried through CIM so they work on non-English Windows.
-const win = { proc: null, latest: null, at: 0, retryAt: 0 };
+// ---------- Long-running readers (no process spawning per poll) ----------
+// Starting PowerShell costs ~0.3–1s of CPU, and systeminformation starts one
+// for nearly every Windows call. So live values come from processes that stay
+// running and print a snapshot on their own schedule:
+//   Windows: ONE PowerShell loop (every 1.5s) — LibreHardwareMonitor sensors,
+//            GPU engine load + GPU memory via in-process .NET performance
+//            counters (what Task Manager uses; no WMI provider churn), and
+//            every 6s: ACPI CPU temp, battery charge, page file.
+//   NVIDIA:  `nvidia-smi -l 2` (loop mode) on both Windows and Linux.
+const WIN_SCRIPT = String.raw`
+$ErrorActionPreference = 'SilentlyContinue'
+$engCat = $null; $memCat = $null
+try { $engCat = New-Object System.Diagnostics.PerformanceCounterCategory('GPU Engine'); [void]$engCat.ReadCategory() } catch { $engCat = $null }
+try { $memCat = New-Object System.Diagnostics.PerformanceCounterCategory('GPU Adapter Memory'); [void]$memCat.ReadCategory() } catch { $memCat = $null }
+$prev = @{}; $i = 0; $hw = $null; $lhmOk = $true
+while ($true) {
+  $o = @{}
+  if ($lhmOk -or ($i % 20 -eq 0)) {
+    try {
+      $o.lhm = @(Get-CimInstance -Namespace root/LibreHardwareMonitor -ClassName Sensor -ErrorAction Stop | Select-Object Name,SensorType,Value,Parent)
+      if (-not $hw -or ($i % 40 -eq 0)) { $hw = @(Get-CimInstance -Namespace root/LibreHardwareMonitor -ClassName Hardware -ErrorAction Stop | Select-Object Name,Identifier,HardwareType) }
+      $o.hw = $hw; $lhmOk = $true
+    } catch { $lhmOk = $false }
+  }
+  if ($engCat) { try {
+    $d = $engCat.ReadCategory()['utilization percentage']; $next = @{}; $eng = New-Object System.Collections.ArrayList
+    foreach ($k in $d.Keys) {
+      $s = $d[$k].Sample; $next[$k] = $s
+      if ($prev.ContainsKey($k)) { $v = [System.Diagnostics.CounterSample]::Calculate($prev[$k], $s); if ($v -gt 0.05) { [void]$eng.Add(@{ Name = $k; UtilizationPercentage = [math]::Round($v, 2) }) } }
+    }
+    $prev = $next; $o.eng = $eng
+  } catch {} }
+  if ($memCat) { try {
+    $c = $memCat.ReadCategory(); $ded = $c['dedicated usage']; $sh = $c['shared usage']
+    $o.mem = @($ded.Keys | ForEach-Object { @{ Name = $_; DedicatedUsage = $ded[$_].RawValue; SharedUsage = $sh[$_].RawValue } })
+  } catch {} }
+  if ($i % 4 -eq 0) {
+    if (-not $lhmOk) { $o.acpi = @(Get-CimInstance -Namespace root/wmi -ClassName MSAcpi_ThermalZoneTemperature | ForEach-Object { $_.CurrentTemperature }) }
+    $o.bat = @(Get-CimInstance Win32_Battery | Select-Object EstimatedChargeRemaining,BatteryStatus,EstimatedRunTime)
+    $o.pf = @(Get-CimInstance Win32_PageFileUsage | Select-Object AllocatedBaseSize,CurrentUsage)
+  }
+  $i++
+  [Console]::Out.WriteLine(($o | ConvertTo-Json -Compress -Depth 4)); [Console]::Out.WriteLine('@@END@@'); [Console]::Out.Flush()
+  Start-Sleep -Milliseconds 1500
+}`;
+
+const win = { proc: null, latest: null, slow: null, at: 0, retryAt: 0 };
 function startWinSensors() {
   if (!isWin || win.proc || Date.now() < win.retryAt) return;
   const { spawn } = require('child_process');
-  const script = [
-    "$ErrorActionPreference='SilentlyContinue'",
-    'while ($true) {',
-    '  $o = @{}',
-    "  try { $o.lhm = @(Get-CimInstance -Namespace root/LibreHardwareMonitor -ClassName Sensor -ErrorAction Stop | Select-Object Name,SensorType,Value,Parent)",
-    "        $o.hw = @(Get-CimInstance -Namespace root/LibreHardwareMonitor -ClassName Hardware -ErrorAction Stop | Select-Object Name,Identifier,HardwareType) } catch { $o.lhm = $null }",
-    "  $o.eng = @(Get-CimInstance Win32_PerfFormattedData_GPUPerformanceCounters_GPUEngine | Where-Object { $_.UtilizationPercentage -gt 0 } | Select-Object Name,UtilizationPercentage)",
-    "  $o.mem = @(Get-CimInstance Win32_PerfFormattedData_GPUPerformanceCounters_GPUAdapterMemory | Select-Object Name,DedicatedUsage,SharedUsage)",
-    "  [Console]::Out.WriteLine(($o | ConvertTo-Json -Compress -Depth 4)); [Console]::Out.WriteLine('@@END@@'); [Console]::Out.Flush()",
-    '  Start-Sleep -Milliseconds 800',
-    '}',
-  ].join('\n');
-  const p = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { windowsHide: true });
+  const p = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', '-'], { windowsHide: true, stdio: ['pipe', 'pipe', 'ignore'] });
   win.proc = p;
+  p.stdin.end(WIN_SCRIPT);
   let buf = '';
   p.stdout.on('data', (d) => {
     buf += d.toString();
+    if (buf.length > 4e6) buf = '';
     let i;
     while ((i = buf.indexOf('@@END@@')) !== -1) {
       const chunk = buf.slice(0, i).trim();
       buf = buf.slice(i + 7);
-      try { win.latest = JSON.parse(chunk); win.at = Date.now(); } catch {}
+      try {
+        const o = JSON.parse(chunk);
+        win.latest = o; win.at = Date.now();
+        if (o.bat || o.pf || o.acpi) win.slow = { bat: o.bat, pf: o.pf, acpi: o.acpi };
+      } catch {}
     }
   });
-  p.on('exit', () => { win.proc = null; win.retryAt = Date.now() + 30000; });
+  p.on('exit', () => { win.proc = null; win.retryAt = Date.now() + 15000; });
 }
 function winSnapshot() {
   startWinSensors();
   return win.latest && Date.now() - win.at < 10000 ? win.latest : null;
 }
 function lhmSensors() { const w = winSnapshot(); return w && Array.isArray(w.lhm) && w.lhm.length ? w.lhm : null; }
-function stopSensors() { if (win.proc) { try { win.proc.kill(); } catch {} } }
+
+// NVIDIA via nvidia-smi loop mode (one process, prints every 2s)
+const nv = { proc: null, rows: [], at: 0, retryAt: 0, absent: false };
+function startNvidia() {
+  if (nv.proc || nv.absent || Date.now() < nv.retryAt) return;
+  const { spawn } = require('child_process');
+  const exe = isWin && fs.existsSync('C:\\Program Files\\NVIDIA Corporation\\NVSMI\\nvidia-smi.exe') ? 'C:\\Program Files\\NVIDIA Corporation\\NVSMI\\nvidia-smi.exe' : 'nvidia-smi';
+  let p;
+  try {
+    p = spawn(exe, ['--query-gpu=name,utilization.gpu,temperature.gpu,memory.used,memory.total,fan.speed,power.draw', '--format=csv,noheader,nounits', '-l', '2'], { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
+  } catch { nv.absent = true; return; }
+  nv.proc = p;
+  let buf = '', batch = [];
+  p.stdout.on('data', (d) => {
+    buf += d.toString();
+    let i;
+    while ((i = buf.indexOf('\n')) !== -1) {
+      const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1);
+      if (!line) continue;
+      const f = line.split(',').map((x) => x.trim());
+      const num = (x) => { const n = parseFloat(x); return Number.isFinite(n) ? n : null; };
+      batch.push({ name: f[0], load: num(f[1]), temp: num(f[2]), memUsed: num(f[3]), memTotal: num(f[4]), fan: num(f[5]), power: num(f[6]) });
+      // nvidia-smi prints one line per GPU each cycle; publish when we have them all
+      if (batch.length >= Math.max(1, nv.count || 1)) { nv.rows = batch; nv.at = Date.now(); batch = []; }
+    }
+  });
+  p.on('error', () => { nv.absent = true; nv.proc = null; });
+  p.on('exit', (code) => { nv.proc = null; if (code !== null && code !== 0 && !nv.rows.length) nv.absent = true; else nv.retryAt = Date.now() + 15000; });
+}
+
+function stopSensors() {
+  for (const p of [win.proc, nv.proc]) { if (p) { try { p.kill(); } catch {} } }
+  win.proc = null; nv.proc = null;
+  if (isWin && si.powerShellRelease) { try { si.powerShellRelease(); } catch {} }
+}
 
 // ---------- GPUs ----------
 const VIRTUAL_GPU = /basic render|basic display|remote display|parsec|citrix|hyper-v|virtual|vmware|virtualbox|spacedesk|idd|indirect/i;
@@ -229,8 +297,15 @@ function buildGpus(controllers) {
 
 // Windows built-in drive health (no smartctl needed, needs admin):
 // Get-StorageReliabilityCounter gives temperature, wear, power-on hours, errors.
+let relCache = null, relAt = 0;
 async function winReliability() {
   if (!isWin) return [];
+  if (relCache && Date.now() - relAt < 300000) return relCache;
+  relAt = Date.now();
+  relCache = await winReliabilityNow();
+  return relCache;
+}
+async function winReliabilityNow() {
   const ps = "Get-PhysicalDisk | ForEach-Object { $d=$_; $r = $d | Get-StorageReliabilityCounter -ErrorAction SilentlyContinue; " +
     "[pscustomobject]@{ Serial=$d.SerialNumber; Name=$d.FriendlyName; Health=[string]$d.HealthStatus; " +
     "Temp=$r.Temperature; Wear=$r.Wear; Hours=$r.PowerOnHours; Cycles=$r.StartStopCycleCount; " +
@@ -354,6 +429,8 @@ async function getStatic() {
   const [system, cpu, os, graphics, mem] = await Promise.all([
     si.system(), si.cpu(), si.osInfo(), si.graphics(), si.memLayout(),
   ]);
+  cache.gfx = (graphics.controllers || []).map((c) => ({ model: c.model, vendor: c.vendor, vram: c.vram, name: c.name }));
+  cache.gfxAt = Date.now();
   return {
     system: { manufacturer: system.manufacturer, model: system.model },
     cpu: { brand: `${cpu.manufacturer} ${cpu.brand}`.trim(), cores: cpu.physicalCores, threads: cpu.cores, speed: cpu.speedMax || cpu.speed },
@@ -364,25 +441,72 @@ async function getStatic() {
 }
 
 // ---------- Live sampling ----------
-// Two background loops fill a cache; getLive() just returns it instantly.
-//   fast (every 500ms): CPU load, per-core load, clock, memory — cheap
-//   slow (back-to-back, ≥1.5s apart): temps, GPU, battery, fans — slow on Windows
-const cache = { fast: null, slow: null };
+// Background loops fill a cache; getLive() just returns it instantly.
+//   fast (1s):  CPU load, per-core load, clock, RAM — read from the OS in-process
+//   slow (2s):  temps, GPUs, fans, battery charge — from the long-running readers
+//   rare (60s): battery capacity details; GPU list (10 min)
+// When the window is minimised/hidden everything slows right down.
+const cache = { fast: null, slow: null, battery: null, batteryAt: 0, gfx: null, gfxAt: 0 };
 let loopsStarted = false;
+let active = true;
 
 async function sampleFast() {
-  const [load, mem, speed] = await Promise.all([si.currentLoad(), si.mem(), si.cpuCurrentSpeed()]);
-  cache.fast = {
-    load: round(load.currentLoad),
-    coreLoads: load.cpus.map((c) => round(c.load, 0)),
-    ghz: speed.avg,
-    mem: { total: mem.total, used: mem.active, pct: round((mem.active / mem.total) * 100), swapTotal: mem.swaptotal, swapUsed: mem.swapused },
-  };
+  const [load, speed] = await Promise.all([si.currentLoad(), si.cpuCurrentSpeed()]);
+  let mem;
+  if (isWin) { // si.mem() starts PowerShell on Windows for swap — use the OS directly
+    const total = os.totalmem(), free = os.freemem();
+    const pf = win.slow && win.slow.pf && win.slow.pf[0];
+    mem = { total, used: total - free, pct: round(((total - free) / total) * 100), swapTotal: pf ? pf.AllocatedBaseSize * 1048576 : 0, swapUsed: pf ? pf.CurrentUsage * 1048576 : 0 };
+  } else {
+    const m = await si.mem();
+    mem = { total: m.total, used: m.active, pct: round((m.active / m.total) * 100), swapTotal: m.swaptotal, swapUsed: m.swapused };
+  }
+  cache.fast = { load: round(load.currentLoad), coreLoads: load.cpus.map((c) => round(c.load, 0)), ghz: speed.avg, mem };
+}
+
+async function graphicsList() {
+  if (!cache.gfx || Date.now() - cache.gfxAt > 600000) {
+    const g = await si.graphics().catch(() => ({ controllers: [] }));
+    cache.gfx = (g.controllers || []).map((c) => ({ model: c.model, vendor: c.vendor, vram: c.vram, name: c.name }));
+    cache.gfxAt = Date.now();
+    nv.count = null;
+  }
+  if (nv.count == null) nv.count = cache.gfx.filter((c) => /nvidia/i.test(`${c.vendor} ${c.model}`)).length;
+  if (nv.count && active) startNvidia();
+  // merge live NVIDIA readings onto the static list
+  const fresh = Date.now() - nv.at < 8000 ? nv.rows : [];
+  let k = 0;
+  return cache.gfx.map((c) => {
+    if (!/nvidia/i.test(`${c.vendor} ${c.model}`)) return { ...c };
+    const r = fresh.find((x) => x.name && c.model && (x.name === c.model || c.model.includes(x.name) || x.name.includes(c.model))) || fresh[k];
+    k++;
+    return r ? { ...c, utilizationGpu: r.load, temperatureGpu: r.temp, memoryUsed: r.memUsed, memoryTotal: r.memTotal ?? c.vram, fanSpeed: r.fan, powerDraw: r.power } : { ...c };
+  });
+}
+
+async function batteryInfo() {
+  if (!cache.battery || Date.now() - cache.batteryAt > 60000) { // capacity details rarely change
+    cache.battery = await si.battery().catch(() => ({}));
+    cache.batteryAt = Date.now();
+  }
+  const b = { ...cache.battery };
+  const live = isWin && win.slow && win.slow.bat && win.slow.bat[0];
+  if (live) { // live charge from the long-running reader
+    if (live.EstimatedChargeRemaining != null) b.percent = live.EstimatedChargeRemaining;
+    const st = live.BatteryStatus;
+    b.isCharging = [6, 7, 8, 9].includes(st);
+    b.acConnected = st !== 1;
+    if (b.designedCapacity && b.maxCapacity) b.currentCapacity = Math.round((b.maxCapacity * b.percent) / 100);
+  }
+  return b;
 }
 
 async function sampleSlow() {
-  const [temp, graphics, battery] = await Promise.all([
-    si.cpuTemperature().catch(() => ({})), si.graphics().catch(() => ({})), si.battery().catch(() => ({})),
+  startWinSensors();
+  const [controllers, battery, temp] = await Promise.all([
+    graphicsList(),
+    batteryInfo(),
+    isWin ? Promise.resolve({}) : si.cpuTemperature().catch(() => ({})), // Windows: si starts PowerShell for this
   ]);
   let cpuTemp = temp.main ?? null;
   let cpuTempMax = temp.max ?? null;
@@ -392,41 +516,53 @@ async function sampleSlow() {
   const l = lhmSensors();
   if (l) {
     const temps = l.filter((x) => x.SensorType === 'Temperature');
-    const pkg = temps.find((x) => /package|tctl|tdie|cpu/i.test(x.Name) && /cpu|intel|amd/i.test(x.Parent || ''))
-      || temps.find((x) => /package|tctl|tdie/i.test(x.Name));
+    const pkg = temps.find((x) => /package|tctl|tdie|cpu/i.test(x.Name) && /cpu|intel|amd/i.test(x.Parent || '') && !/gpu/i.test(x.Parent || ''))
+      || temps.find((x) => /package|tctl|tdie/i.test(x.Name) && !/gpu/i.test(x.Parent || ''));
     if (pkg) cpuTemp = round(pkg.Value);
     const cores = temps.filter((x) => /^core #\d+$/i.test(x.Name)).map((x) => round(x.Value));
     if (cores.length) { coreTemps = cores; cpuTempMax = Math.max(...cores); }
     fans = l.filter((x) => x.SensorType === 'Fan' && x.Value > 0).map((x) => ({ name: x.Name, rpm: Math.round(x.Value) }));
     temps.filter((x) => !/core #|package|tctl|tdie/i.test(x.Name) && !/gpu/i.test(x.Parent || '')).slice(0, 8)
       .forEach((x) => extraTemps.push({ name: x.Name, value: round(x.Value) }));
+  } else if (isWin && win.slow && win.slow.acpi && win.slow.acpi.length) {
+    const zones = win.slow.acpi.map((t) => t / 10 - 273.15).filter((t) => t > 5 && t < 120);
+    if (zones.length) cpuTemp = round(Math.max(...zones));
   }
   if (temp.chipset != null) extraTemps.push({ name: 'Chipset', value: temp.chipset });
   cache.slow = {
     temp: cpuTemp, tempMax: cpuTempMax, coreTemps,
-    gpus: buildGpus(graphics.controllers),
+    gpus: buildGpus(controllers),
     battery: batteryHealth(battery), fans, extraTemps, lhm: !!l,
   };
 }
 
-function loop(fn, minGap) {
+function loop(fn, activeGap, idleGap) {
   const tick = async () => {
     const t = Date.now();
     try { await fn(); } catch {}
-    setTimeout(tick, Math.max(50, minGap - (Date.now() - t)));
+    const gap = active ? activeGap : idleGap;
+    setTimeout(tick, Math.max(100, gap - (Date.now() - t)));
   };
   tick();
+}
+
+// Called by main.js when the window is minimised/hidden (false) or shown (true)
+function setActive(on) {
+  if (active === on) return;
+  active = on;
+  if (!on) { for (const p of [win.proc, nv.proc]) { if (p) { try { p.kill(); } catch {} } } win.proc = null; nv.proc = null; win.retryAt = 0; nv.retryAt = 0; }
+  else { startWinSensors(); if (nv.count) startNvidia(); }
 }
 
 async function getLive() {
   if (!loopsStarted) {
     loopsStarted = true;
+    if (isWin && si.powerShellStart) { try { si.powerShellStart(); } catch {} } // reuse one PowerShell for the remaining si calls
     startWinSensors();
-    loop(sampleFast, 500);
-    loop(sampleSlow, 1500);
+    loop(sampleFast, 1000, 5000);
+    loop(async () => { if (active || !cache.slow) await sampleSlow(); }, 2000, 10000);
   }
-  // first call: wait until both caches have something
-  for (let i = 0; i < 100 && (!cache.fast || !cache.slow); i++) await new Promise((r) => setTimeout(r, 50));
+  for (let i = 0; i < 160 && (!cache.fast || !cache.slow); i++) await new Promise((r) => setTimeout(r, 50));
   const f = cache.fast || { load: 0, coreLoads: [], ghz: null, mem: { total: 1, used: 0, pct: 0 } };
   const sl = cache.slow || { temp: null, tempMax: null, coreTemps: [], gpus: [], battery: { present: false }, fans: [], extraTemps: [], lhm: false };
   return {
@@ -437,7 +573,14 @@ async function getLive() {
 }
 
 // ---------- Slow poll (every ~30s) ----------
+let storageCache = null, storageAt = 0;
 async function getStorage() {
+  if (storageCache && Date.now() - storageAt < 60000) return storageCache;
+  storageCache = await getStorageNow();
+  storageAt = Date.now();
+  return storageCache;
+}
+async function getStorageNow() {
   const [layout, fsSize, rel] = await Promise.all([si.diskLayout().catch(() => []), si.fsSize(), winReliability()]);
   const norm = (x) => String(x || '').replace(/[\s_.\-]/g, '').toUpperCase();
   const relFor = (d) => rel.find((r) => (r.Serial && d.serialNum && (norm(r.Serial).includes(norm(d.serialNum)) || norm(d.serialNum).includes(norm(r.Serial))))
@@ -450,4 +593,4 @@ async function getStorage() {
   };
 }
 
-module.exports = { getStatic, getLive, getStorage, stopSensors };
+module.exports = { getStatic, getLive, getStorage, stopSensors, setActive };

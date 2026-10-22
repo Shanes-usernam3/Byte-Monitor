@@ -92,8 +92,9 @@ main::-webkit-scrollbar-thumb { background: var(--line2); border-radius: 10px; b
 .top h1 { margin: 2px 0 0; font-size: 24px; font-weight: 600; letter-spacing: -.2px; }
 .eyebrow { font-size: 11px; letter-spacing: 1.4px; text-transform: uppercase; color: var(--muted); }
 .top-right { display: flex; align-items: center; gap: 8px; }
-.live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--teal); box-shadow: 0 0 0 0 rgba(46,230,201,.6); animation: pulse 2s infinite; }
-@keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(46,230,201,.55); } 70% { box-shadow: 0 0 0 9px rgba(46,230,201,0); } 100% { box-shadow: 0 0 0 0 rgba(46,230,201,0); } }
+.live-dot { position: relative; width: 8px; height: 8px; border-radius: 50%; background: var(--teal); }
+.live-dot::after { content: ""; position: absolute; inset: 0; border-radius: 50%; background: var(--teal); animation: pulse 2.4s ease-out infinite; will-change: transform, opacity; }
+@keyframes pulse { 0% { transform: scale(1); opacity: .6; } 70%, 100% { transform: scale(3.2); opacity: 0; } }
 .badge { font-size: 10.5px; font-weight: 700; letter-spacing: 1px; padding: 4px 9px; border-radius: 6px; }
 .badge.demo { background: rgba(255,138,61,.15); color: var(--orange); border: 1px solid rgba(255,138,61,.35); margin-right: 8px; }
 

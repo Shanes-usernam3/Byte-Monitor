@@ -33,6 +33,12 @@ function createWindow() {
     },
   });
   if (wa.width < 1100 || wa.height < 720) win.maximize();
+  // stop sampling hard while nobody can see the window
+  const vis = (on) => { if (sensors.setActive) sensors.setActive(on); };
+  win.on('minimize', () => vis(false));
+  win.on('hide', () => vis(false));
+  win.on('restore', () => vis(true));
+  win.on('show', () => vis(true));
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
   win.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: 'deny' }; });
 }
