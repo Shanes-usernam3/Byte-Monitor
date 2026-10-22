@@ -593,4 +593,9 @@ async function getStorageNow() {
   };
 }
 
-module.exports = { getStatic, getLive, getStorage, stopSensors, setActive };
+// for scripts/perf-check.js
+const _debug = () => ({ winAlive: !!win.proc, winAgeMs: win.at ? Date.now() - win.at : null, keys: win.latest ? Object.keys(win.latest) : null,
+  eng: win.latest && win.latest.eng ? win.latest.eng.length : null, mem: win.latest && win.latest.mem ? win.latest.mem.length : null,
+  lhm: win.latest && win.latest.lhm ? win.latest.lhm.length : null, slow: win.slow, nv: { count: nv.count, rows: nv.rows.length, absent: nv.absent } });
+
+module.exports = { getStatic, getLive, getStorage, stopSensors, setActive, _debug };
