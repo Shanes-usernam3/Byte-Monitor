@@ -27,6 +27,7 @@ const cpuTimes = () => os.cpus().reduce((a, c) => { const t = c.times; a.idle +=
   const msg = `${label}: machine CPU ${busy.toFixed(1)}% over ${secs}s on ${os.cpus().length} threads (${polls} polls)`;
   const sample = JSON.stringify({ cpu: last.cpu.load, temp: last.cpu.temp, mem: last.mem.pct, swap: last.mem.swapUsed, gpus: last.gpus, battery: last.battery.present }).slice(0, 600);
   if (process.env.GITHUB_ACTIONS) { console.log(`::notice title=perf::${msg}`); console.log(`::notice title=sample ${label}::${sample}`); }
+  if (sensors._debug) { const d = JSON.stringify(sensors._debug()).slice(0, 900); console.log('debug:', d); if (process.env.GITHUB_ACTIONS) console.log(`::notice title=debug ${label}::${d}`); }
   console.log('RESULT', msg); console.log('sample:', sample);
   if (sensors.stopSensors) sensors.stopSensors();
   process.exit(0);
