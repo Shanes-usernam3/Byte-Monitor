@@ -100,14 +100,18 @@
         <div class="sp-progress hidden" id="spProgress"><div class="sp-spin"></div><span id="spProgText"></span></div>
       </div>
       <div id="spResults" class="hidden">
-        <div class="sp-crumbs-row">
-          <div class="sp-crumbs" id="spCrumbs"></div>
-          <div class="tiny" id="spSummary"></div>
-          <button class="btn ghost" id="spReveal">Open in file manager</button>
-        </div>
         <div class="grid g-space">
-          <div class="card sp-map-card"><div class="treemap" id="spMap"></div></div>
-          <div class="card sp-list-card"><div class="card-head"><h3>Biggest items here</h3><span class="tiny">click a folder to open it</span></div><div class="sp-list" id="spList"></div></div>
+          <div class="card sp-map-card">
+            <div class="card-head"><h3>Drive map</h3><span class="tiny sp-hover" id="spHover">Hover a box to see what it is · click it to open it in the tree</span></div>
+            <div class="treemap" id="spMap"><canvas id="spBase"></canvas><canvas id="spOver"></canvas><div class="sp-tip hidden" id="spTip"></div></div>
+            <div class="sp-legend" id="spLegend"></div>
+          </div>
+          <div class="card sp-tree-card">
+            <div class="sp-path" id="spPath"></div>
+            <div class="sp-tree-head"><span>Name</span><span>% parent</span><span class="r">Size</span><span class="r">Files</span></div>
+            <div class="sp-tree" id="spTree" tabindex="0"></div>
+            <div class="sp-tree-foot"><span class="tiny" id="spSummary"></span><button class="btn ghost" id="spReveal">Open in file manager</button></div>
+          </div>
         </div>
         <div class="grid g-2">
           <div class="card"><div class="card-head"><h3>Largest files</h3><span class="tiny">whole scan</span></div><div class="sp-files" id="spFiles"></div></div>

@@ -4,6 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const { Worker } = require('worker_threads');
 const si = require('systeminformation');
+const { SpaceIndex } = require('./space-index');
 
 const DEMO = process.argv.includes('--demo') || process.env.BYTE_MONITOR_DEMO === '1';
 const sensors = DEMO ? require('./demo') : require('./sensors');
@@ -83,6 +84,7 @@ ipcMain.handle('space:scan', (_e, root) => {
     if (m.type === 'progress') win.webContents.send('space:progress', m);
     else if (m.type === 'done') {
       scan.result = m; scan.worker = null;
+      scan.index = new SpaceIndex(m.root, root);
       win.webContents.send('space:done', { root, cancelled: m.cancelled, stats: m.stats, topFiles: m.topFiles, exts: m.exts.slice(0, 40), total: m.root.s });
     } else if (m.type === 'error') { scan.worker = null; win.webContents.send('space:error', m.message); }
   });
@@ -92,26 +94,16 @@ ipcMain.handle('space:scan', (_e, root) => {
 
 ipcMain.handle('space:cancel', () => { if (scan.worker) scan.worker.postMessage('cancel'); });
 
-// Return one folder's contents (folders + biggest files), each with a preview of its own children for the nested treemap
-ipcMain.handle('space:node', (_e, segs) => {
-  if (!scan.result) return null;
-  let node = scan.result.root;
-  for (const s of segs) { node = (node.d || []).find((c) => c.n === s); if (!node) return null; }
-  const kids = (n) => [
-    ...(n.d || []).map((c) => ({ kind: 'dir', n: c.n, s: c.s, f: c.f, err: !!c.err })),
-    ...(n.files || []).map((f) => ({ kind: 'file', n: f.n, s: f.s })),
-    ...(n.rest ? [{ kind: 'rest', n: `${n.rest.c.toLocaleString()} smaller files`, s: n.rest.s }] : []),
-  ].filter((k) => k.s > 0).sort((a, b) => b.s - a.s);
-  const items = kids(node).map((k) => {
-    if (k.kind === 'dir') {
-      const child = node.d.find((c) => c.n === k.n);
-      k.preview = kids(child).slice(0, 24);
-    }
-    return k;
-  });
-  const fullPath = path.join(scan.root, ...segs);
-  return { name: segs.length ? segs[segs.length - 1] : scan.root, path: fullPath, s: node.s, f: node.f, items };
+// Folder tree + whole-drive treemap (see space-index.js)
+ipcMain.handle('space:children', (_e, id) => (scan.index ? scan.index.children(id) : null));
+ipcMain.handle('space:segments', (_e, id) => (scan.index ? scan.index.segments(id) : null));
+ipcMain.handle('space:chain', (_e, id) => (scan.index ? scan.index.chain(id) : null));
+ipcMain.handle('space:path', (_e, id, file) => {
+  if (!scan.index) return null;
+  const dir = scan.index.pathOf(id);
+  return file ? path.join(dir, file) : dir;
 });
+ipcMain.handle('space:layout', (_e, w, h) => (scan.index ? scan.index.layout(w, h) : null));
 
 ipcMain.handle('space:reveal', (_e, p) => { if (typeof p === 'string' && fs.existsSync(p)) shell.showItemInFolder(p); });
 

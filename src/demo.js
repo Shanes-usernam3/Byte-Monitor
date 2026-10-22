@@ -9,7 +9,7 @@ module.exports = {
       system: { manufacturer: 'Lenovo', model: 'Legion 5 Pro (Demo)' },
       cpu: { brand: 'AMD Ryzen 7 5800H', cores: 8, threads: 16, speed: 4.4 },
       os: { distro: 'Windows 11 Pro', release: '24H2', arch: 'x64', hostname: 'HP-BENCH-01', platform: 'win32' },
-      gpus: [{ model: 'NVIDIA GeForce RTX 3070 Laptop GPU', vendor: 'NVIDIA', vram: 8192 }],
+      gpus: [{ model: 'NVIDIA GeForce RTX 3070 Laptop GPU', vendor: 'NVIDIA', vram: 8192, integrated: false }, { model: 'AMD Radeon(TM) Graphics', vendor: 'AMD', vram: 512, integrated: true }],
       memModules: [{ size: 17179869184, type: 'DDR4', speed: 3200 }, { size: 17179869184, type: 'DDR4', speed: 3200 }],
     };
   },
@@ -27,7 +27,10 @@ module.exports = {
         ghz: wobble(3.6, 0.4),
       },
       mem: { total: 34359738368, used: 14.2e9 + Math.random() * 4e8, pct: wobble(42, 2), swapTotal: 4e9, swapUsed: 3e8 },
-      gpus: [{ model: 'NVIDIA GeForce RTX 3070 Laptop GPU', temp: wobble(54, 4), load: Math.round(wobble(18, 10)), memUsed: 1830, memTotal: 8192, fan: 38, power: wobble(32, 6) }],
+      gpus: [
+        { model: 'NVIDIA GeForce RTX 3070 Laptop GPU', integrated: false, temp: wobble(54, 4), load: Math.round(wobble(18, 10)), memUsed: 1830, memTotal: 8192, shared: 120, fan: 38, power: wobble(32, 6) },
+        { model: 'AMD Radeon(TM) Graphics', integrated: true, temp: null, load: Math.max(0, Math.round(wobble(34, 14))), memUsed: null, memTotal: 512, shared: Math.round(wobble(940, 60)), fan: null, power: null },
+      ],
       battery: {
         present: true, model: 'Celxpert L20C4PC2', unit: 'mWh',
         designCapacity: 80000, fullCapacity: 66420, currentCapacity: 51800,

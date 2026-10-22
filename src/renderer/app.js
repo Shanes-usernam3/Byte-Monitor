@@ -147,7 +147,7 @@ const FAN_SVG = '<path fill="currentColor" d="M12 11a1 1 0 1 0 0 2 1 1 0 0 0 0-2
 const ov = { sig: null, html: {} };
 const overviewSig = (L) => JSON.stringify([
   Math.min(L.cpu.coreLoads.length, 16), L.cpu.temp != null,
-  L.gpus[0] ? [L.gpus[0].model, L.gpus[0].temp != null, L.gpus[0].load != null] : 0,
+  L.gpus.map((g) => [g.model, g.temp != null, g.load != null]),
   L.fans.map((f) => f.name), !!state.static,
 ]);
 
@@ -160,12 +160,18 @@ function buildOverview(L) {
   ov.cpu = makeGauge($('#statCpu .gauge'), { size: 112, stroke: 9, arc: 270 });
   ov.cpuK1 = $('#statCpu .k1'); ov.cpuK2 = $('#statCpu .k2');
 
-  const gpu = L.gpus[0];
-  if (gpu) {
-    $('#statGpu').innerHTML = `<div class="label">Graphics</div><div class="sub">${esc(gpu.model || '')}</div><div class="gauge"></div>
-      <div class="row">Load <b class="k1"></b></div><div class="row">VRAM <b class="k2"></b></div>`;
+  if (L.gpus.length) {
+    // two GPUs (e.g. Intel/AMD integrated + NVIDIA): start on whichever is busier, chips switch
+    if (ov.gpuSel == null || ov.gpuSel >= L.gpus.length) {
+      ov.gpuSel = L.gpus.reduce((best, g, i) => ((g.load ?? -1) > (L.gpus[best].load ?? -1) ? i : best), 0);
+    }
+    const chips = L.gpus.length > 1
+      ? `<div class="gpu-chips">${L.gpus.map((g, i) => `<button data-gpu="${i}" class="${i === ov.gpuSel ? 'on' : ''}" title="${esc(g.model)}">${g.integrated ? 'iGPU' : 'dGPU'}</button>`).join('')}</div>` : '';
+    const g = L.gpus[ov.gpuSel];
+    $('#statGpu').innerHTML = `<div class="label-row"><div class="label">Graphics</div>${chips}</div><div class="sub" title="${esc(g.model)}">${esc(g.model || '')}${L.gpus.length === 1 && g.integrated ? ' · integrated' : ''}</div><div class="gauge"></div>
+      <div class="row">Load <b class="k1"></b></div><div class="row"><span class="k3"></span> <b class="k2"></b></div>`;
     ov.gpu = makeGauge($('#statGpu .gauge'), { size: 112, stroke: 9, arc: 270 });
-    ov.gpuK1 = $('#statGpu .k1'); ov.gpuK2 = $('#statGpu .k2');
+    ov.gpuK1 = $('#statGpu .k1'); ov.gpuK2 = $('#statGpu .k2'); ov.gpuK3 = $('#statGpu .k3');
   } else {
     ov.gpu = null;
     $('#statGpu').innerHTML = `<div class="label">Graphics</div><div class="empty">No GPU sensors found</div>`;
@@ -229,13 +235,16 @@ function paintOverview(dt) {
   setText(ov.cpuK1, fmt(val('cpu.load')) + '%');
   setText(ov.cpuK2, val('cpu.tmax') != null ? fmt(val('cpu.tmax')) + '°C' : '—');
 
-  if (ov.gpu) {
-    const g = L.gpus[0];
+  if (ov.gpu && L.gpus[ov.gpuSel]) {
+    const i = ov.gpuSel, g = L.gpus[i];
     const hasGT = g.temp != null;
-    const gm = val(hasGT ? 'gpu.temp' : 'gpu.load');
-    ov.gpu.draw((gm || 0) / (hasGT ? 105 : 100), gm != null ? fmt(gm) : '—', gm == null ? '' : hasGT ? '°C' : '%', hasGT ? tempGrade(tween.tgt.get('gpu.temp'), 82, 92) : 'good', hasGT ? 'TEMP' : 'LOAD');
-    setText(ov.gpuK1, val('gpu.load') != null ? fmt(val('gpu.load')) + '%' : '—');
-    setText(ov.gpuK2, val('gpu.vram') != null ? fmt(val('gpu.vram') / 1024, 1) + ' / ' + fmt(g.memTotal / 1024, 0) + ' GB' : g.memTotal ? fmt(g.memTotal / 1024, 0) + ' GB' : '—');
+    const gm = val(`gpu${i}.${hasGT ? 'temp' : 'load'}`);
+    ov.gpu.draw((gm || 0) / (hasGT ? 105 : 100), gm != null ? fmt(gm) : '—', gm == null ? '' : hasGT ? '°C' : '%', hasGT ? tempGrade(tween.tgt.get(`gpu${i}.temp`), 82, 92) : 'good', gm == null ? 'NO DATA' : hasGT ? 'TEMP' : 'LOAD');
+    setText(ov.gpuK1, val(`gpu${i}.load`) != null ? fmt(val(`gpu${i}.load`)) + '%' : '—');
+    const ded = val(`gpu${i}.vram`), sh = val(`gpu${i}.shared`);
+    if (!g.integrated && ded != null) { setText(ov.gpuK3, 'VRAM'); setText(ov.gpuK2, fmt(ded / 1024, 1) + (g.memTotal ? ' / ' + fmt(g.memTotal / 1024, 0) : '') + ' GB'); }
+    else if (sh != null) { setText(ov.gpuK3, 'Shared memory'); setText(ov.gpuK2, fmt(sh / 1024, 1) + ' GB'); }
+    else { setText(ov.gpuK3, 'Memory'); setText(ov.gpuK2, g.memTotal ? fmt(g.memTotal / 1024, 0) + ' GB' : '—'); }
   }
 
   const mp = val('mem.pct');
@@ -363,7 +372,7 @@ function renderSensors() {
     const r = sensorUI.rows.get(k);
     if (!r) continue;
     const u = s.unit;
-    const dp = u === 'RPM' || u === '%' ? 0 : 1;
+    const dp = u === 'RPM' || u === '%' || u === 'MB' ? 0 : 1;
     const grade = u === '°C' ? tempGrade(s.cur, 80, 92) : 'good';
     setText(r.cur, `${fmt(s.cur, dp)} ${u}`);
     r.cur.style.color = gradeColor(grade);
@@ -384,7 +393,7 @@ function renderSystem() {
     <div class="card"><div class="card-head"><h3>Processor</h3></div>
       ${spec('Model', S.cpu.brand)}${spec('Cores / threads', `${S.cpu.cores} / ${S.cpu.threads}`)}${spec('Max clock', S.cpu.speed ? S.cpu.speed + ' GHz' : '—')}${spec('Sensor source', L?.lhm ? 'LibreHardwareMonitor' : 'OS / ACPI')}</div>
     <div class="card"><div class="card-head"><h3>Graphics</h3></div>
-      ${S.gpus.map((g) => spec(g.vendor || 'GPU', `${g.model}${g.vram ? ' · ' + (g.vram / 1024).toFixed(0) + ' GB' : ''}`)).join('') || '<div class="empty">None</div>'}</div>
+      ${S.gpus.map((g) => spec(g.integrated ? 'Integrated' : 'Discrete', `${g.model}${g.vram && !g.integrated ? ' · ' + (g.vram / 1024).toFixed(0) + ' GB' : ''}`)).join('') || '<div class="empty">None</div>'}</div>
     <div class="card"><div class="card-head"><h3>Memory modules</h3></div>
       ${S.memModules.map((m, i) => spec(m.slot || 'Slot ' + (i + 1), `${gb(m.size)} ${m.type || ''} ${m.speed ? m.speed + ' MT/s' : ''}`)).join('') || '<div class="empty">Not reported</div>'}</div>`;
 }
@@ -489,8 +498,7 @@ async function pollLive() {
     if (overviewSig(L) !== ov.sig) buildOverview(L);
     target('cpu.load', L.cpu.load); target('cpu.temp', L.cpu.temp); target('cpu.tmax', L.cpu.tempMax); target('ghz', L.cpu.ghz);
     L.cpu.coreLoads.slice(0, 16).forEach((v, i) => target('core' + i, v));
-    const g = L.gpus[0];
-    target('gpu.temp', g?.temp); target('gpu.load', g?.load); target('gpu.vram', g?.memUsed);
+    L.gpus.forEach((g, i) => { target(`gpu${i}.temp`, g.temp); target(`gpu${i}.load`, g.load); target(`gpu${i}.vram`, g.memUsed); target(`gpu${i}.shared`, g.shared); });
     target('mem.pct', L.mem.pct); target('mem.used', L.mem.used); target('mem.swap', L.mem.swapUsed);
     L.fans.forEach((f, i) => target('fan' + i, f.rpm));
 
@@ -499,9 +507,11 @@ async function pollLive() {
     track('cpu.load', 'Processor', 'Total load', L.cpu.load, '%');
     track('cpu.clock', 'Processor', 'Avg clock', L.cpu.ghz, 'GHz', 6);
     L.gpus.forEach((gg, i) => {
-      const n = L.gpus.length > 1 ? `GPU ${i} ` : 'GPU ';
+      const n = L.gpus.length > 1 ? (gg.integrated ? 'Integrated GPU ' : 'Discrete GPU ') : 'GPU ';
       track(`gpu${i}.t`, 'Graphics', n + 'temperature', gg.temp, '°C', 105);
       track(`gpu${i}.l`, 'Graphics', n + 'load', gg.load, '%');
+      track(`gpu${i}.m`, 'Graphics', n + 'memory used', gg.memUsed, 'MB', gg.memTotal || 8192);
+      track(`gpu${i}.s`, 'Graphics', n + 'shared memory', gg.shared, 'MB', 8192);
       track(`gpu${i}.p`, 'Graphics', n + 'power', gg.power, 'W', 200);
       track(`gpu${i}.f`, 'Graphics', n + 'fan', gg.fan, '%');
     });
@@ -560,6 +570,8 @@ function go(page) {
   if (page === 'space' && window.spaceOpen) window.spaceOpen();
 }
 document.addEventListener('click', (e) => {
+  const chip = e.target.closest('[data-gpu]');
+  if (chip) { ov.gpuSel = +chip.dataset.gpu; ov.sig = null; if (state.live) buildOverview(state.live); return; }
   const n = e.target.closest('[data-page],[data-goto]');
   if (n) go(n.dataset.page || n.dataset.goto);
 });

@@ -56,20 +56,31 @@ function linuxFans() {
   return out;
 }
 
-// LibreHardwareMonitor exposes sensors over WMI when it is running.
-// Spawning PowerShell per poll is slow (~1s), so keep ONE PowerShell process
-// alive that prints a JSON snapshot every second. Optional — if LHM isn't
-// running we just get nothing and retry every 30s.
-const lhm = { proc: null, latest: null, at: 0, retryAt: 0 };
-function startLhm() {
-  if (!isWin || lhm.proc || Date.now() < lhm.retryAt) return;
+// Windows live sensors from ONE long-running PowerShell process (spawning
+// PowerShell per poll costs ~1s). Every ~0.8s it prints a JSON snapshot of:
+//   lhm/hw — LibreHardwareMonitor sensors + hardware (only if LHM is running)
+//   eng    — GPU engine utilisation (same counters Task Manager uses; works
+//            for integrated Intel/AMD GPUs with nothing installed)
+//   mem    — GPU adapter memory (dedicated + shared)
+// The perf classes are queried through CIM so they work on non-English Windows.
+const win = { proc: null, latest: null, at: 0, retryAt: 0 };
+function startWinSensors() {
+  if (!isWin || win.proc || Date.now() < win.retryAt) return;
   const { spawn } = require('child_process');
-  const script = "$ErrorActionPreference='Stop'; while ($true) { try { " +
-    "$s = Get-CimInstance -Namespace root/LibreHardwareMonitor -ClassName Sensor | Select-Object Name,SensorType,Value,Parent; " +
-    "[Console]::Out.WriteLine(($s | ConvertTo-Json -Compress)); } catch { [Console]::Out.WriteLine('NOLHM') } " +
-    "[Console]::Out.WriteLine('@@END@@'); [Console]::Out.Flush(); Start-Sleep -Milliseconds 900 }";
+  const script = [
+    "$ErrorActionPreference='SilentlyContinue'",
+    'while ($true) {',
+    '  $o = @{}',
+    "  try { $o.lhm = @(Get-CimInstance -Namespace root/LibreHardwareMonitor -ClassName Sensor -ErrorAction Stop | Select-Object Name,SensorType,Value,Parent)",
+    "        $o.hw = @(Get-CimInstance -Namespace root/LibreHardwareMonitor -ClassName Hardware -ErrorAction Stop | Select-Object Name,Identifier,HardwareType) } catch { $o.lhm = $null }",
+    "  $o.eng = @(Get-CimInstance Win32_PerfFormattedData_GPUPerformanceCounters_GPUEngine | Where-Object { $_.UtilizationPercentage -gt 0 } | Select-Object Name,UtilizationPercentage)",
+    "  $o.mem = @(Get-CimInstance Win32_PerfFormattedData_GPUPerformanceCounters_GPUAdapterMemory | Select-Object Name,DedicatedUsage,SharedUsage)",
+    "  [Console]::Out.WriteLine(($o | ConvertTo-Json -Compress -Depth 4)); [Console]::Out.WriteLine('@@END@@'); [Console]::Out.Flush()",
+    '  Start-Sleep -Milliseconds 800',
+    '}',
+  ].join('\n');
   const p = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { windowsHide: true });
-  lhm.proc = p;
+  win.proc = p;
   let buf = '';
   p.stdout.on('data', (d) => {
     buf += d.toString();
@@ -77,17 +88,144 @@ function startLhm() {
     while ((i = buf.indexOf('@@END@@')) !== -1) {
       const chunk = buf.slice(0, i).trim();
       buf = buf.slice(i + 7);
-      if (!chunk || chunk.startsWith('NOLHM')) { lhm.latest = null; continue; }
-      try { let arr = JSON.parse(chunk); if (!Array.isArray(arr)) arr = [arr]; lhm.latest = arr; lhm.at = Date.now(); } catch {}
+      try { win.latest = JSON.parse(chunk); win.at = Date.now(); } catch {}
     }
   });
-  p.on('exit', () => { lhm.proc = null; lhm.retryAt = Date.now() + 30000; });
+  p.on('exit', () => { win.proc = null; win.retryAt = Date.now() + 30000; });
 }
-function lhmSensors() {
-  startLhm();
-  return lhm.latest && Date.now() - lhm.at < 10000 ? lhm.latest : null;
+function winSnapshot() {
+  startWinSensors();
+  return win.latest && Date.now() - win.at < 10000 ? win.latest : null;
 }
-function stopSensors() { if (lhm.proc) { try { lhm.proc.kill(); } catch {} } }
+function lhmSensors() { const w = winSnapshot(); return w && Array.isArray(w.lhm) && w.lhm.length ? w.lhm : null; }
+function stopSensors() { if (win.proc) { try { win.proc.kill(); } catch {} } }
+
+// ---------- GPUs ----------
+const VIRTUAL_GPU = /basic render|basic display|remote display|parsec|citrix|hyper-v|virtual|vmware|virtualbox|spacedesk|idd|indirect/i;
+function isIntegrated(g) {
+  const m = `${g.vendor || ''} ${g.model || ''}`;
+  if (/intel/i.test(m)) return !/\barc\b/i.test(m) || /graphics$/i.test(g.model || '');
+  if (/amd|ati|radeon/i.test(m)) return !/\b(rx|pro w|vega 56|vega 64|radeon vii)\b/i.test(m) && (!g.vram || g.vram <= 2048);
+  return false;
+}
+
+// Task Manager style: per adapter (luid), sum each engine type across
+// processes, then the adapter's load is the busiest engine type.
+function perfGpus(snap) {
+  const out = new Map();
+  const luidOf = (name) => { const m = /luid_(0x[0-9a-f]+_0x[0-9a-f]+)/i.exec(name || ''); return m ? m[1].toLowerCase() : null; };
+  const get = (l) => out.get(l) || (out.set(l, { luid: l, types: {}, dedicated: 0, shared: 0 }), out.get(l));
+  for (const e of (snap && snap.eng) || []) {
+    const l = luidOf(e.Name); if (!l) continue;
+    const t = (/engtype_(.+)$/i.exec(e.Name) || [])[1] || 'other';
+    const g = get(l); g.types[t] = (g.types[t] || 0) + (e.UtilizationPercentage || 0);
+  }
+  for (const m of (snap && snap.mem) || []) {
+    const l = luidOf(m.Name); if (!l) continue;
+    const g = get(l); g.dedicated += m.DedicatedUsage || 0; g.shared += m.SharedUsage || 0;
+  }
+  return [...out.values()].map((g) => ({ ...g, load: Math.min(100, Math.max(0, ...Object.values(g.types), 0)) }));
+}
+
+function lhmGpus(snap) {
+  if (!snap || !Array.isArray(snap.hw) || !Array.isArray(snap.lhm)) return [];
+  return snap.hw.filter((h) => /gpu/i.test(h.HardwareType || '') || /^\/gpu/i.test(h.Identifier || '')).map((h) => {
+    const s = snap.lhm.filter((x) => x.Parent === h.Identifier);
+    const pick = (type, re) => { const x = s.find((v) => v.SensorType === type && re.test(v.Name)); return x ? x.Value : null; };
+    const loads = s.filter((v) => v.SensorType === 'Load' && /gpu core|d3d 3d|d3d video|d3d copy/i.test(v.Name)).map((v) => v.Value);
+    return {
+      name: h.Name,
+      temp: pick('Temperature', /gpu core|gpu$|edge|package/i) ?? pick('Temperature', /./),
+      load: pick('Load', /gpu core/i) ?? (loads.length ? Math.max(...loads) : null),
+      memUsed: pick('SmallData', /gpu memory used|d3d dedicated memory used/i), // MB
+      shared: pick('SmallData', /d3d shared memory used/i),                   // MB
+      power: pick('Power', /gpu package|gpu power|gpu core/i),
+    };
+  });
+}
+
+function linuxGpuExtras() { // AMD (incl. integrated Radeon) via amdgpu sysfs
+  const out = [];
+  try {
+    for (const card of fs.readdirSync('/sys/class/drm').filter((c) => /^card\d+$/.test(c))) {
+      const dev = `/sys/class/drm/${card}/device`;
+      const rd = (f) => { try { return fs.readFileSync(path.join(dev, f), 'utf8').trim(); } catch { return null; } };
+      const busy = rd('gpu_busy_percent');
+      if (busy == null) continue;
+      let temp = null;
+      try {
+        const hw = fs.readdirSync(path.join(dev, 'hwmon'))[0];
+        const t = fs.readFileSync(path.join(dev, 'hwmon', hw, 'temp1_input'), 'utf8');
+        temp = parseInt(t, 10) / 1000;
+      } catch {}
+      const used = rd('mem_info_vram_used'), gtt = rd('mem_info_gtt_used');
+      out.push({ vendor: 'AMD', load: parseInt(busy, 10), temp, memUsed: used ? parseInt(used, 10) / 1048576 : null, shared: gtt ? parseInt(gtt, 10) / 1048576 : null });
+    }
+  } catch {}
+  return out;
+}
+
+const similar = (a, b) => {
+  const t = (x) => String(x || '').toLowerCase().replace(/\(r\)|\(tm\)|graphics|gpu|laptop|corporation|nvidia|amd|intel/g, ' ').split(/\W+/).filter((w) => w.length > 1);
+  const A = new Set(t(a)); return t(b).filter((w) => A.has(w)).length;
+};
+
+function buildGpus(controllers) {
+  const list = (controllers || [])
+    .filter((g) => !VIRTUAL_GPU.test(`${g.model} ${g.vendor}`))
+    .map((g) => ({
+      model: g.model || g.name || 'GPU', vendor: g.vendor || '', integrated: isIntegrated(g),
+      temp: g.temperatureGpu ?? null, load: g.utilizationGpu ?? null,
+      memUsed: g.memoryUsed ?? null, memTotal: g.memoryTotal ?? g.vram ?? null, shared: null,
+      fan: g.fanSpeed ?? null, power: g.powerDraw ?? null,
+    }));
+  if (isWin) {
+    const snap = winSnapshot();
+    // 1) LibreHardwareMonitor — names its hardware, so match by name
+    for (const l of lhmGpus(snap)) {
+      const best = list.map((g) => [g, similar(g.model, l.name)]).sort((a, b) => b[1] - a[1])[0];
+      if (!best || best[1] === 0) continue;
+      const g = best[0];
+      g.temp = g.temp ?? l.temp; g.load = g.load ?? l.load; g.memUsed = g.memUsed ?? l.memUsed;
+      g.shared = g.shared ?? l.shared; g.power = g.power ?? l.power;
+    }
+    // 2) Windows GPU counters — fill load / memory for anything still blank
+    const perf = perfGpus(snap).filter((p) => p.dedicated + p.shared > 0 || p.load > 0);
+    const need = list.filter((g) => g.load == null || g.shared == null);
+    if (perf.length && need.length) {
+      const remaining = perf.slice();
+      // a GPU we already know (e.g. NVIDIA via nvidia-smi) claims the adapter whose dedicated memory matches
+      for (const g of list.filter((x) => x.memUsed != null && !x.integrated)) {
+        const i = remaining.map((p, k) => [k, Math.abs(p.dedicated / 1048576 - g.memUsed)]).sort((a, b) => a[1] - b[1])[0];
+        if (i && remaining.length > 1) { const p = remaining.splice(i[0], 1)[0]; if (g.load == null) g.load = p.load; if (g.shared == null) g.shared = p.shared / 1048576; }
+      }
+      // integrated GPU = adapter that mostly uses shared memory; discrete = mostly dedicated
+      remaining.sort((a, b) => (a.dedicated - a.shared) - (b.dedicated - b.shared));
+      for (const g of need.filter((x) => x.load == null).sort((a, b) => (b.integrated ? 1 : 0) - (a.integrated ? 1 : 0))) {
+        const p = g.integrated ? remaining.shift() : remaining.pop();
+        if (!p) break;
+        g.load = p.load;
+        g.shared = p.shared / 1048576;
+        if (g.memUsed == null && !g.integrated) g.memUsed = p.dedicated / 1048576;
+      }
+    }
+  } else if (isLinux) {
+    const extras = linuxGpuExtras();
+    for (const e of extras) {
+      const g = list.find((x) => /amd|ati|radeon/i.test(`${x.vendor} ${x.model}`) && x.load == null);
+      if (!g) continue;
+      g.load = e.load; g.temp = g.temp ?? e.temp; g.memUsed = g.memUsed ?? e.memUsed; g.shared = e.shared;
+    }
+  }
+  for (const g of list) {
+    if (g.load != null) g.load = round(g.load, 0);
+    if (g.temp != null) g.temp = round(g.temp, 0);
+    if (g.shared != null) g.shared = round(g.shared, 0);
+    if (g.memUsed != null) g.memUsed = round(g.memUsed, 0);
+  }
+  // discrete first, then integrated
+  return list.sort((a, b) => (a.integrated ? 1 : 0) - (b.integrated ? 1 : 0));
+}
 
 // Windows built-in drive health (no smartctl needed, needs admin):
 // Get-StorageReliabilityCounter gives temperature, wear, power-on hours, errors.
@@ -220,7 +358,7 @@ async function getStatic() {
     system: { manufacturer: system.manufacturer, model: system.model },
     cpu: { brand: `${cpu.manufacturer} ${cpu.brand}`.trim(), cores: cpu.physicalCores, threads: cpu.cores, speed: cpu.speedMax || cpu.speed },
     os: { distro: os.distro, release: os.release, arch: os.arch, hostname: os.hostname, platform: os.platform },
-    gpus: (graphics.controllers || []).map((g) => ({ model: g.model, vendor: g.vendor, vram: g.vram })),
+    gpus: (graphics.controllers || []).filter((g) => !VIRTUAL_GPU.test(`${g.model} ${g.vendor}`)).map((g) => ({ model: g.model, vendor: g.vendor, vram: g.vram, integrated: isIntegrated(g) })),
     memModules: mem.map((m) => ({ size: m.size, type: m.type, speed: m.clockSpeed, slot: m.bank })),
   };
 }
@@ -260,16 +398,13 @@ async function sampleSlow() {
     const cores = temps.filter((x) => /^core #\d+$/i.test(x.Name)).map((x) => round(x.Value));
     if (cores.length) { coreTemps = cores; cpuTempMax = Math.max(...cores); }
     fans = l.filter((x) => x.SensorType === 'Fan' && x.Value > 0).map((x) => ({ name: x.Name, rpm: Math.round(x.Value) }));
-    temps.filter((x) => !/core #|package|tctl|tdie/i.test(x.Name)).slice(0, 8)
+    temps.filter((x) => !/core #|package|tctl|tdie/i.test(x.Name) && !/gpu/i.test(x.Parent || '')).slice(0, 8)
       .forEach((x) => extraTemps.push({ name: x.Name, value: round(x.Value) }));
   }
   if (temp.chipset != null) extraTemps.push({ name: 'Chipset', value: temp.chipset });
   cache.slow = {
     temp: cpuTemp, tempMax: cpuTempMax, coreTemps,
-    gpus: (graphics.controllers || []).map((g) => ({
-      model: g.model, temp: g.temperatureGpu ?? null, load: g.utilizationGpu ?? null,
-      memUsed: g.memoryUsed ?? null, memTotal: g.memoryTotal ?? g.vram ?? null, fan: g.fanSpeed ?? null, power: g.powerDraw ?? null,
-    })),
+    gpus: buildGpus(graphics.controllers),
     battery: batteryHealth(battery), fans, extraTemps, lhm: !!l,
   };
 }
@@ -286,7 +421,7 @@ function loop(fn, minGap) {
 async function getLive() {
   if (!loopsStarted) {
     loopsStarted = true;
-    startLhm();
+    startWinSensors();
     loop(sampleFast, 500);
     loop(sampleSlow, 1500);
   }
