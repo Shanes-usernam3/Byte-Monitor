@@ -155,7 +155,7 @@ main::-webkit-scrollbar-thumb { background: var(--line2); border-radius: 10px; b
 
 /* bars */
 .bar { height: 8px; background: var(--bg); border: 1px solid var(--line); border-radius: 99px; overflow: hidden; }
-.bar > i { display: block; height: 100%; border-radius: 99px; background: linear-gradient(90deg, var(--cyan), var(--teal)); transition: width .6s ease; }
+.bar > i { display: block; height: 100%; border-radius: 99px; background: linear-gradient(90deg, var(--cyan), var(--teal)); transition: width .9s cubic-bezier(.25,.8,.25,1); }
 .bar.fair > i { background: linear-gradient(90deg, var(--orange), var(--amber)); }
 .bar.bad > i { background: linear-gradient(90deg, #c4314f, var(--red)); }
 .bar.lg { height: 14px; }
@@ -189,14 +189,14 @@ main::-webkit-scrollbar-thumb { background: var(--line2); border-radius: 10px; b
 .cores { display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; align-items: end; height: 120px; }
 .core { display: flex; flex-direction: column; align-items: center; gap: 4px; height: 100%; justify-content: flex-end; }
 .core .col { width: 100%; background: var(--bg); border: 1px solid var(--line); border-radius: 5px; flex: 1; position: relative; overflow: hidden; }
-.core .col i { position: absolute; left: 0; right: 0; bottom: 0; background: linear-gradient(0deg, var(--cyan), var(--teal)); transition: height .5s ease; border-radius: 4px; }
+.core .col i { position: absolute; left: 0; right: 0; bottom: 0; background: linear-gradient(0deg, var(--cyan), var(--teal)); border-radius: 4px; will-change: height; }
 .core .col i.hot { background: linear-gradient(0deg, var(--orange), var(--amber)); }
 .core span { font-size: 10px; color: var(--dim); font-family: var(--mono); }
 
 /* fans */
 .fan { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-top: 1px solid var(--line); }
 .fan:first-child { border-top: 0; }
-.fan .spin { width: 26px; height: 26px; color: var(--cyan); animation: spin linear infinite; }
+.fan .spin { width: 26px; height: 26px; color: var(--cyan); will-change: transform; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .fan .fn { flex: 1; color: var(--muted); font-size: 12.5px; }
 .fan .fr { font-family: var(--mono); }
@@ -208,22 +208,23 @@ main::-webkit-scrollbar-thumb { background: var(--line2); border-radius: 10px; b
 .tbl td { padding: 9px 10px; border-bottom: 1px solid var(--line); font-family: var(--mono); font-size: 13px; }
 .tbl td:first-child { font-family: var(--font); color: var(--text); }
 .tbl tr.group td { font-family: var(--font); color: var(--teal); font-weight: 600; font-size: 12px; letter-spacing: .8px; text-transform: uppercase; background: rgba(46,230,201,.04); padding-top: 14px; }
+.tbl td.cur { transition: color .4s; }
 .tbl td.min { color: var(--cyan); } .tbl td.max { color: var(--orange); }
 .tbl .barcol { width: 28%; }
 .tbl tr:hover td { background: rgba(255,255,255,.015); }
 
 /* disk detail */
-.disk-card { display: grid; grid-template-columns: 150px 1fr; gap: 24px; align-items: center; }
+.disk-card { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 24px; align-items: center; }
 .disk-card .ring-wrap { width: 140px; height: 140px; }
 .disk-card h2 { margin: 0 0 2px; font-size: 18px; font-weight: 600; }
 .disk-meta { color: var(--dim); font-size: 12px; margin-bottom: 8px; }
-.attrs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 12px; }
+.attrs { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin-top: 12px; }
 .attr { background: var(--bg2); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
 .attr span { display: block; font-size: 10.5px; color: var(--dim); letter-spacing: 1px; text-transform: uppercase; }
 .attr b { font-family: var(--mono); font-weight: 500; font-size: 15px; }
 .attr.warn b { color: var(--orange); }
 .note { margin-top: 10px; font-size: 12px; color: var(--amber); }
-.vol { display: grid; grid-template-columns: 120px 1fr 190px; align-items: center; gap: 16px; padding: 10px 0; border-top: 1px solid var(--line); }
+.vol { display: grid; grid-template-columns: 90px minmax(0, 1fr) auto; align-items: center; gap: 16px; padding: 10px 0; border-top: 1px solid var(--line); }
 .vol:first-child { border-top: 0; }
 .vol .vm { font-weight: 600; font-family: var(--mono); }
 .vol .vs { font-family: var(--mono); font-size: 12px; color: var(--muted); text-align: right; }
