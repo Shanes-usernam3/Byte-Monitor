@@ -1,6 +1,6 @@
 {
   "name": "byte-monitor",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Byte Monitor — desktop hardware health & space monitor by HardPoint Networks",
   "main": "src/main.js",
   "scripts": {
