@@ -107,9 +107,11 @@ const win = { proc: null, latest: null, slow: null, at: 0, retryAt: 0 };
 function startWinSensors() {
   if (!isWin || win.proc || Date.now() < win.retryAt) return;
   const { spawn } = require('child_process');
-  const p = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', '-'], { windowsHide: true, stdio: ['pipe', 'pipe', 'ignore'] });
+  // -EncodedCommand (UTF-16LE base64) runs the whole multi-line script reliably
+  const encoded = Buffer.from(WIN_SCRIPT, 'utf16le').toString('base64');
+  const p = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded], { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
   win.proc = p;
-  p.stdin.end(WIN_SCRIPT);
+  p.stderr.on('data', (d) => { win.err = ((win.err || '') + d.toString()).slice(-600); });
   let buf = '';
   p.stdout.on('data', (d) => {
     buf += d.toString();
@@ -125,7 +127,7 @@ function startWinSensors() {
       } catch {}
     }
   });
-  p.on('exit', () => { win.proc = null; win.retryAt = Date.now() + 15000; });
+  p.on('exit', (code) => { win.proc = null; win.exit = code; win.retryAt = Date.now() + 15000; });
 }
 function winSnapshot() {
   startWinSensors();
@@ -594,7 +596,7 @@ async function getStorageNow() {
 }
 
 // for scripts/perf-check.js
-const _debug = () => ({ winAlive: !!win.proc, winAgeMs: win.at ? Date.now() - win.at : null, keys: win.latest ? Object.keys(win.latest) : null,
+const _debug = () => ({ winAlive: !!win.proc, exit: win.exit, err: win.err, winAgeMs: win.at ? Date.now() - win.at : null, keys: win.latest ? Object.keys(win.latest) : null,
   eng: win.latest && win.latest.eng ? win.latest.eng.length : null, mem: win.latest && win.latest.mem ? win.latest.mem.length : null,
   lhm: win.latest && win.latest.lhm ? win.latest.lhm.length : null, slow: win.slow, nv: { count: nv.count, rows: nv.rows.length, absent: nv.absent } });
 
