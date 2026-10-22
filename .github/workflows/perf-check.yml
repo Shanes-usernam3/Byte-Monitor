@@ -20,15 +20,15 @@ jobs:
       - run: npm ci --ignore-scripts
       - name: Baseline sources
         shell: bash
-        run: mkdir -p ../baseline && git archive "${{ inputs.baseline }}" src | tar -x -C ../baseline
+        run: mkdir -p baseline && git archive "${{ inputs.baseline }}" src | tar -x -C baseline
       - name: Idle machine (no sensors)
         shell: pwsh
         run: |
-          $a = (Get-CimInstance Win32_PerfFormattedData_PerfOS_Processor -Filter "Name='_Total'").PercentProcessorTime
           Start-Sleep 20
           $c = Get-Counter '\Processor(_Total)\% Processor Time' -SampleInterval 2 -MaxSamples 10
-          "RESULT idle: machine CPU {0:N1}%" -f (($c.CounterSamples.CookedValue | Measure-Object -Average).Average)
+          $m = "idle machine (no sensors): CPU {0:N1}%" -f (($c.CounterSamples.CookedValue | Measure-Object -Average).Average)
+          "::notice title=perf::$m"
       - name: Baseline
-        run: node scripts/perf-check.js ../baseline/src 40
+        run: node scripts/perf-check.js baseline/src 40
       - name: This branch
         run: node scripts/perf-check.js src 40
