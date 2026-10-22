@@ -1,0 +1,34 @@
+name: Perf check (sensor CPU cost)
+
+# Compares the CPU cost of the sensor layer on a real Windows machine
+# between this branch and a baseline ref (default v0.1.2).
+on:
+  workflow_dispatch:
+    inputs:
+      baseline:
+        description: Git ref to compare against
+        default: v0.1.2
+
+jobs:
+  perf:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-node@v5
+        with: { node-version: 22, cache: npm }
+      - run: npm ci --ignore-scripts
+      - name: Baseline sources
+        shell: bash
+        run: mkdir -p ../baseline && git archive "${{ inputs.baseline }}" src | tar -x -C ../baseline
+      - name: Idle machine (no sensors)
+        shell: pwsh
+        run: |
+          $a = (Get-CimInstance Win32_PerfFormattedData_PerfOS_Processor -Filter "Name='_Total'").PercentProcessorTime
+          Start-Sleep 20
+          $c = Get-Counter '\Processor(_Total)\% Processor Time' -SampleInterval 2 -MaxSamples 10
+          "RESULT idle: machine CPU {0:N1}%" -f (($c.CounterSamples.CookedValue | Measure-Object -Average).Average)
+      - name: Baseline
+        run: node scripts/perf-check.js ../baseline/src 40
+      - name: This branch
+        run: node scripts/perf-check.js src 40
