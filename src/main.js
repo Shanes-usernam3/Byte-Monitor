@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, screen } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -11,11 +11,15 @@ const sensors = DEMO ? require('./demo') : require('./sensors');
 let win;
 
 function createWindow() {
+  // Fit the window to the screen it opens on (laptops at 125–150% scaling are small)
+  const wa = screen.getPrimaryDisplay().workAreaSize;
+  const width = Math.min(1360, Math.round(wa.width * 0.94));
+  const height = Math.min(880, Math.round(wa.height * 0.92));
   win = new BrowserWindow({
-    width: 1360,
-    height: 880,
-    minWidth: 980,
-    minHeight: 640,
+    width,
+    height,
+    minWidth: Math.min(900, wa.width),
+    minHeight: Math.min(600, wa.height),
     backgroundColor: '#070d12',
     title: 'Byte Monitor',
     icon: path.join(__dirname, '..', 'build', 'icon.png'),
@@ -27,6 +31,7 @@ function createWindow() {
       sandbox: false,
     },
   });
+  if (wa.width < 1100 || wa.height < 720) win.maximize();
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
   win.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: 'deny' }; });
 }
@@ -112,3 +117,4 @@ ipcMain.handle('space:reveal', (_e, p) => { if (typeof p === 'string' && fs.exis
 
 app.whenReady().then(createWindow);
 app.on('window-all-closed', () => app.quit());
+app.on('before-quit', () => { if (sensors.stopSensors) sensors.stopSensors(); });
