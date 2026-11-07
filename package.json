@@ -13,7 +13,7 @@
     "name": "HardPoint Networks",
     "email": "138325144+Shanes-usernam3@users.noreply.github.com"
   },
-  "license": "UNLICENSED",
+  "license": "SEE LICENSE IN LICENSE",
   "dependencies": {
     "systeminformation": "^5.33.16"
   },
@@ -42,6 +42,21 @@
       "requestedExecutionLevel": "requireAdministrator",
       "extraResources": [
         {
+          "from": "licenses",
+          "to": "licenses",
+          "filter": [
+            "**/*"
+          ]
+        },
+        {
+          "from": "LICENSE",
+          "to": "licenses/LICENSE.txt"
+        },
+        {
+          "from": "THIRD-PARTY-NOTICES.md",
+          "to": "licenses/THIRD-PARTY-NOTICES.md"
+        },
+        {
           "from": "build/smartctl",
           "to": "smartctl",
           "filter": [
@@ -69,8 +84,25 @@
       ],
       "icon": "build/icon.png",
       "category": "System",
-      "maintainer": "HardPoint Networks",
-      "synopsis": "Hardware health monitor"
+      "maintainer": "HardPoint Networks <138325144+Shanes-usernam3@users.noreply.github.com>",
+      "synopsis": "Hardware health monitor",
+      "extraResources": [
+        {
+          "from": "licenses",
+          "to": "licenses",
+          "filter": [
+            "**/*"
+          ]
+        },
+        {
+          "from": "LICENSE",
+          "to": "licenses/LICENSE.txt"
+        },
+        {
+          "from": "THIRD-PARTY-NOTICES.md",
+          "to": "licenses/THIRD-PARTY-NOTICES.md"
+        }
+      ]
     },
     "deb": {
       "depends": [

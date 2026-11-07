@@ -1,0 +1,41 @@
+Byte Monitor — Source-Available License
+Copyright (c) 2026 HardPoint Networks. All rights reserved.
+
+The source code in this repository is published so it can be viewed and so the
+official releases can be downloaded. It is NOT open source.
+
+1. You MAY
+   a. view and read the source code;
+   b. download the official builds published on this repository's Releases page
+      and install and use them on computers you own or manage, including for
+      your own business or for your customers' computers as part of a service
+      you provide.
+
+2. You MAY NOT, without prior written permission from HardPoint Networks
+   a. copy, modify, translate or create derivative works of the source code;
+   b. redistribute, sublicense, sell, rent or publish the software, its source
+      code or modified versions of either, whether free or paid;
+   c. remove or alter this notice, the Byte Monitor or HardPoint Networks names,
+      or the third-party notices;
+   d. use the Byte Monitor or HardPoint Networks names or logos to promote
+      another product.
+
+3. Third-party components
+   Byte Monitor includes third-party software distributed under its own
+   licenses, listed in THIRD-PARTY-NOTICES.md. Nothing in this license limits
+   your rights under those licenses for those components.
+
+4. No warranty
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. HEALTH SCORES, DRIVE
+   AND BATTERY ESTIMATES AND SENSOR READINGS ARE INFORMATIONAL ONLY AND MAY BE
+   INACCURATE. ALWAYS KEEP BACKUPS OF IMPORTANT DATA.
+
+5. Limitation of liability
+   IN NO EVENT SHALL HARDPOINT NETWORKS OR ITS CONTRIBUTORS BE LIABLE FOR ANY
+   CLAIM, DAMAGES, DATA LOSS OR OTHER LIABILITY, WHETHER IN AN ACTION OF
+   CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+   SOFTWARE OR ITS USE.
+
+For permission requests, open an issue on this repository.

@@ -8,3 +8,5 @@ Bundled installer (run only when you click "Enable CPU temps & fans"):
 
 - PawnIO driver setup (PawnIO_setup.exe) — https://pawnio.eu , https://github.com/namazso/PawnIO.Setup
   Signed kernel driver used for reading CPU temperatures, fan speeds and motherboard sensors.
+
+Full list of components and licenses: THIRD-PARTY-NOTICES.md and the licenses folder (resources/licenses in the installed app).

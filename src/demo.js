@@ -7,7 +7,7 @@ module.exports = {
   async getStatic() {
     return {
       system: { manufacturer: 'Lenovo', model: 'Legion 5 Pro (Demo)' },
-      cpu: { brand: 'AMD Ryzen 7 5800H', cores: 8, threads: 16, speed: 4.4 },
+      cpu: { brand: 'AMD Ryzen 7 5800H', cores: 8, threads: 16, base: 3.2, max: 4.4 },
       os: { distro: 'Windows 11 Pro', release: '24H2', arch: 'x64', hostname: 'HP-BENCH-01', platform: 'win32' },
       gpus: [{ model: 'NVIDIA GeForce RTX 3070 Laptop GPU', vendor: 'NVIDIA', vram: 8192, integrated: false }, { model: 'AMD Radeon(TM) Graphics', vendor: 'AMD', vram: 512, integrated: true }],
       memModules: [{ size: 17179869184, type: 'DDR4', speed: 3200 }, { size: 17179869184, type: 'DDR4', speed: 3200 }],
