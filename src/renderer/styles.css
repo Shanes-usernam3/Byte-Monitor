@@ -211,6 +211,7 @@ main::-webkit-scrollbar-thumb { background: var(--line2); border-radius: 10px; b
 .fan .fn { flex: 1; color: var(--muted); font-size: 12.5px; }
 .fan .fr { font-family: var(--mono); }
 .empty { color: var(--dim); font-size: 12.5px; padding: 6px 0; }
+.about-note { font-size: 12px; color: var(--muted); line-height: 1.55; margin: 10px 0 12px; }
 .driver-btn { display: block; margin-top: 10px; font-size: 12px; padding: 8px 12px; }
 .driver-btn[disabled] { opacity: .6; cursor: wait; }
 

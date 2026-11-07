@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld('byte', {
   live: () => ipcRenderer.invoke('live'),
   storage: () => ipcRenderer.invoke('storage'),
   installDriver: () => ipcRenderer.invoke('driver:install'),
+  openLicenses: () => ipcRenderer.invoke('open-licenses'),
   space: {
     targets: () => ipcRenderer.invoke('space:targets'),
     pick: () => ipcRenderer.invoke('space:pick'),

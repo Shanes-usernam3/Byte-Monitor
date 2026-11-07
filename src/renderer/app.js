@@ -427,7 +427,11 @@ function renderSystem() {
     <div class="card"><div class="card-head"><h3>Graphics</h3></div>
       ${S.gpus.map((g) => spec(g.integrated ? 'Integrated' : 'Discrete', `${g.model}${g.vram && !g.integrated ? ' · ' + (g.vram / 1024).toFixed(0) + ' GB' : ''}`)).join('') || '<div class="empty">None</div>'}</div>
     <div class="card"><div class="card-head"><h3>Memory modules</h3></div>
-      ${(S.memSlots?.slots?.length ? S.memSlots.slots : S.memModules.map((m, i) => ({ label: m.slot || 'Slot ' + (i + 1), ...m }))).map((m) => spec(m.label, m.empty ? 'Empty' : `${gb(m.size)} ${m.type || ''} ${m.speed ? m.speed + ' MT/s' : ''}`)).join('') || '<div class="empty">Not reported</div>'}</div>`;
+      ${(S.memSlots?.slots?.length ? S.memSlots.slots : S.memModules.map((m, i) => ({ label: m.slot || 'Slot ' + (i + 1), ...m }))).map((m) => spec(m.label, m.empty ? 'Empty' : `${gb(m.size)} ${m.type || ''} ${m.speed ? m.speed + ' MT/s' : ''}`)).join('') || '<div class="empty">Not reported</div>'}</div>
+    <div class="card about"><div class="card-head"><h3>About</h3></div>
+      ${spec('App', `Byte Monitor ${state.meta?.version ? 'v' + state.meta.version : ''}`)}${spec('By', 'HardPoint Networks')}${spec('License', 'Source-available, all rights reserved')}
+      <div class="about-note">Includes open-source components (Electron, systeminformation, smartmontools, LibreHardwareMonitorLib, PawnIO and others) under their own licenses. Health figures are estimates — keep backups of important data.</div>
+      <button class="btn ghost" data-action="licenses">View licenses</button></div>`;
 }
 
 // ---------- chart (redrawn every frame, scrolls continuously) ----------
@@ -609,6 +613,7 @@ function go(page) {
   if (page === 'space' && window.spaceOpen) window.spaceOpen();
 }
 document.addEventListener('click', (e) => {
+  if (e.target.closest('[data-action="licenses"]')) { window.byte.openLicenses(); return; }
   const drv = e.target.closest('[data-action="driver"]');
   if (drv) { enableDriver(drv); return; }
   const chip = e.target.closest('[data-gpu]');

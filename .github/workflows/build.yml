@@ -43,7 +43,8 @@ jobs:
           New-Item -ItemType Directory -Force build\smartctl | Out-Null
           Copy-Item "$src\bin\smartctl.exe" build\smartctl\
           Get-ChildItem "$src" -Recurse -Include COPYING*,LICENSE* | Select-Object -First 1 | Copy-Item -Destination build\smartctl\COPYING.txt
-          "smartctl from smartmontools (https://www.smartmontools.org), GPL-2.0. Source: https://github.com/smartmontools/smartmontools" | Set-Content build\smartctl\NOTICE.txt
+          $ver = (& build\smartctl\smartctl.exe --version | Select-Object -First 1)
+          @("smartctl from smartmontools, licensed GPL-2.0 (see COPYING.txt).", "Version: $ver", "Unmodified binary. Source: https://github.com/smartmontools/smartmontools (tag matching the version above) and https://www.smartmontools.org", "Byte Monitor runs smartctl as a separate program; it is not linked into Byte Monitor.") | Set-Content build\smartctl\NOTICE.txt
           & build\smartctl\smartctl.exe --version | Select-Object -First 1
       # Sensor helper: LibreHardwareMonitorLib + PawnIO → real CPU temps, fans, motherboard sensors
       - uses: actions/setup-dotnet@v4

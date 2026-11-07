@@ -60,6 +60,10 @@ ipcMain.handle('static', safe(async () => {
 ipcMain.handle('live', safe(() => sensors.getLive()));
 ipcMain.handle('driver:install', safe(() => (sensors.installDriver ? sensors.installDriver() : { ok: false, error: 'Not available in demo mode.' })));
 ipcMain.handle('storage', safe(() => sensors.getStorage()));
+ipcMain.handle('open-licenses', () => {
+  const dir = app.isPackaged ? path.join(process.resourcesPath, 'licenses') : path.join(__dirname, '..', 'licenses');
+  return shell.openPath(dir);
+});
 ipcMain.handle('meta', () => ({ demo: DEMO, platform: process.platform, version: app.getVersion() }));
 
 ipcMain.handle('save-report', async (_e, { html, name }) => {

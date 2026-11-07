@@ -1,6 +1,6 @@
 # Byte Monitor
 
-Desktop hardware health monitor for **Windows and Linux** — a cleaner, simpler HWMonitor in the Byte theme, plus a WizTree-style space analyzer. Built for quick device health checks (HardPoint Networks).
+Desktop hardware health monitor for **Windows and Linux** — a cleaner, simpler hardware monitor in the Byte theme (in the spirit of HWMonitor), plus a WizTree-style space analyzer. Built for quick device health checks (HardPoint Networks).
 
 ## What it shows
 - **Overview** — one health score (0–100) with what's behind it, CPU/GPU temps, memory, live CPU chart, per-core load, fans
@@ -46,3 +46,19 @@ src/scanner-worker.js  Disk space scanner (worker thread, stays on one drive, sk
 src/demo.js            Fake data for --demo
 src/renderer/          UI (index.html, styles.css, app.js, space.js) — no framework
 ```
+
+## Privacy
+Byte Monitor runs entirely on your computer. It makes **no network connections** — nothing is uploaded, no telemetry, no accounts. Health reports are saved only where you choose.
+
+## Important notes
+- **Administrator rights (Windows):** the app asks for admin so it can read drive SMART data and hardware sensors.
+- **Sensor driver:** *Enable CPU temps & fans* installs **PawnIO**, a signed kernel driver used by LibreHardwareMonitor, so the app can read CPU temperatures and fan speeds. It is only installed when you click the button and can be removed from *Settings → Apps* like any program.
+- **Space analyzer** only reads file sizes; it never moves or deletes anything.
+- **Health scores and estimates** (drive life, battery wear, overall score) are informational and can be wrong. They are not a guarantee a component won't fail. Keep backups of important data.
+
+## License
+Byte Monitor is **source-available, not open source**: © HardPoint Networks, all rights reserved. You may view the code and use the official release builds on computers you own or manage. Copying, modifying or redistributing it requires permission. See [LICENSE](LICENSE).
+
+It includes open-source components under their own licenses (MIT, MPL-2.0, LGPL-2.1, GPL-2.0, Apache-2.0). See [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) and the [`licenses/`](licenses) folder.
+
+HWMonitor, HWiNFO, WizTree, LibreHardwareMonitor and Windows are trademarks of their owners; Byte Monitor is not affiliated with them.
