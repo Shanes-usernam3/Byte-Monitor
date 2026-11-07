@@ -512,23 +512,53 @@ function batteryHealth(b) {
 // drops the generation prefix, which gave "Intel Gen Intel Core..."
 function cpuName(cpu) {
   const raw = (os.cpus()[0] && os.cpus()[0].model) || '';
-  const clean = raw.replace(/\(R\)/gi, '®').replace(/\(TM\)/gi, '™').replace(/\s+CPU\s+@.*$/i, '').replace(/\s+\d+-Core Processor$/i, '').replace(/\s+/g, ' ').trim();
+  const clean = raw.replace(/\(R\)/gi, '®').replace(/\(TM\)/gi, '™').replace(/\s+(CPU\s*)?@\s*[\d.]+\s*GHz.*$/i, '').replace(/\s+\d+-Core Processor$/i, '').replace(/\s+/g, ' ').trim();
   if (clean) return clean;
   const b = String(cpu.brand || '');
   return b.toLowerCase().includes(String(cpu.manufacturer || '').toLowerCase()) ? b : `${cpu.manufacturer} ${b}`.trim();
 }
 
+// ---------- RAM slots ----------
+// Windows lists only installed sticks; the board's slot count comes from
+// Win32_PhysicalMemoryArray. Linux (dmidecode) lists empty slots as size 0.
+async function memorySlotCount() {
+  if (!isWin) return null;
+  const out = await runOut('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
+    '(Get-CimInstance Win32_PhysicalMemoryArray | Where-Object { $_.Use -eq 3 } | Measure-Object -Property MemoryDevices -Sum).Sum'], 8000);
+  const n = parseInt(String(out || '').trim(), 10);
+  return n > 0 && n <= 64 ? n : null;
+}
+// [{ label: 'Slot 1' | 'Onboard', size, type, speed, empty }]
+function memSlots(mem, winSlots) {
+  const soldered = (m) => /chip|row/i.test(m.formFactor || '');
+  const installed = mem.filter((m) => m.size > 0);
+  const total = isWin ? Math.max(winSlots || 0, installed.length) : mem.length;
+  const out = [];
+  let n = 0;
+  const label = (m) => (soldered(m) ? 'Onboard' : `Slot ${++n}`);
+  // keep the board's order when we know it (Linux), else installed first then empties
+  const ordered = isWin ? [...installed, ...Array.from({ length: total - installed.length }, () => ({ size: 0 }))] : mem;
+  for (const m of ordered) {
+    out.push(m.size > 0
+      ? { label: label(m), size: m.size, type: m.type || '', speed: m.clockSpeed || null, empty: false }
+      : { label: `Slot ${++n}`, size: 0, empty: true });
+  }
+  return { total: out.length, known: isWin ? winSlots != null : mem.length > 0, slots: out };
+}
+
 // ---------- Static info (once) ----------
 async function getStatic() {
-  const [system, cpu, os, graphics, mem] = await Promise.all([
+  const [system, cpu, os, graphics, mem, winSlots] = await Promise.all([
     si.system(), si.cpu(), si.osInfo(), cache.gfx ? Promise.resolve({ controllers: cache.gfx }) : fetchGraphics(), si.memLayout(),
+    memorySlotCount(),
   ]);
   return {
     system: { manufacturer: system.manufacturer, model: system.model },
     cpu: { brand: cpuName(cpu), cores: cpu.physicalCores, threads: cpu.cores, base: cpu.speed || null, max: cpu.speedMax && cpu.speedMax > (cpu.speed || 0) * 1.05 ? cpu.speedMax : null },
     os: { distro: os.distro, release: os.release, arch: os.arch, hostname: os.hostname, platform: os.platform },
     gpus: (graphics.controllers || []).filter((g) => !VIRTUAL_GPU.test(`${g.model} ${g.vendor}`)).map((g) => ({ model: g.model, vendor: g.vendor, vram: g.vram, integrated: isIntegrated(g) })),
-    memModules: mem.map((m) => ({ size: m.size, type: m.type, speed: m.clockSpeed, slot: m.bank })),
+    memModules: mem.filter((m) => m.size > 0).map((m) => ({ size: m.size, type: m.type, speed: m.clockSpeed, slot: m.bank, formFactor: m.formFactor || '' })),
+    memSlots: memSlots(mem, winSlots),
   };
 }
 
