@@ -1,0 +1,10 @@
+Byte Monitor sensor helper (byte-sensors.exe) includes:
+
+- LibreHardwareMonitorLib 0.9.6 — Mozilla Public License 2.0
+  https://github.com/LibreHardwareMonitor/LibreHardwareMonitor
+  (license text: LICENSE-LibreHardwareMonitorLib-MPL-2.0.txt; source unmodified, available at the link above)
+
+Bundled installer (run only when you click "Enable CPU temps & fans"):
+
+- PawnIO driver setup (PawnIO_setup.exe) — https://pawnio.eu , https://github.com/namazso/PawnIO.Setup
+  Signed kernel driver used for reading CPU temperatures, fan speeds and motherboard sensors.

@@ -1,6 +1,6 @@
 {
   "name": "byte-monitor",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "Byte Monitor \u2014 desktop hardware health & space monitor by HardPoint Networks",
   "main": "src/main.js",
   "scripts": {
@@ -44,6 +44,13 @@
         {
           "from": "build/smartctl",
           "to": "smartctl",
+          "filter": [
+            "**/*"
+          ]
+        },
+        {
+          "from": "build/sensors",
+          "to": "sensors",
           "filter": [
             "**/*"
           ]

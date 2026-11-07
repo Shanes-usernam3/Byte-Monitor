@@ -147,13 +147,31 @@ function overall() {
   return { score, parts };
 }
 
+// ---------- sensor driver (Windows: CPU temps + fans) ----------
+function fanEmptyHTML(L) {
+  if (L.sensorDriver === 'missing') {
+    return `<div class="empty">CPU temperatures and fan speeds need the sensor driver (PawnIO — signed, used by LibreHardwareMonitor).</div>
+      <button class="btn primary driver-btn" data-action="driver">Enable CPU temps &amp; fans</button>`;
+  }
+  if (L.sensorDriver === 'starting') return '<div class="empty">Starting sensors…</div>';
+  if (L.sensorDriver === 'ready') return '<div class="empty">No fan sensors found. Some laptops keep fan speed inside the embedded controller where it can’t be read.</div>';
+  return `<div class="empty">${state.meta?.platform === 'win32' ? 'Fan speeds need LibreHardwareMonitor running in the background.' : 'No fan sensors exposed by this hardware.'}</div>`;
+}
+async function enableDriver(btn) {
+  if (btn) { btn.disabled = true; btn.textContent = 'Installing driver…'; }
+  const r = await window.byte.installDriver();
+  if (r && r.ok) toast('Sensor driver installed — CPU temps and fans will appear in a few seconds');
+  else { toast((r && (r.error || 'Install failed')) + ''); if (btn) { btn.disabled = false; btn.textContent = 'Enable CPU temps & fans'; } }
+  ov.sig = null;
+}
+
 // ---------- overview (built once, animated every frame) ----------
 const FAN_SVG = '<path fill="currentColor" d="M12 11a1 1 0 1 0 0 2 1 1 0 0 0 0-2Zm.5-9c4.5 0 4.6 3.6 2.3 4.8-1 .5-1.4 1.5-1.6 2.5.5.2 1 .5 1.4 1 3.7-2 7.4-1.1 7.4 3.2 0 4.5-3.5 4.6-4.8 2.3-.5-1-1.5-1.4-2.5-1.6-.2.5-.5 1-1 1.4 2 3.7 1.1 7.4-3.2 7.4-4.5 0-4.6-3.5-2.3-4.8 1-.5 1.4-1.5 1.6-2.5-.5-.2-1-.5-1.4-1-3.7 2-7.4 1.1-7.4-3.2 0-4.5 3.5-4.6 4.8-2.3.5 1 1.5 1.4 2.5 1.6.2-.5.5-1 1-1.4C7.3 5.6 8.2 2 12.5 2Z" opacity=".85"/>';
 const ov = { sig: null, html: {}, fans: [] };
 const overviewSig = (L) => JSON.stringify([
   Math.min(L.cpu.coreLoads.length, 16), L.cpu.temp != null,
   L.gpus.map((g) => [g.model, g.temp != null, g.load != null]),
-  L.fans.map((f) => f.name), !!state.static, state.static?.memSlots?.total || 0,
+  L.fans.map((f) => f.name), L.sensorDriver || '', !!state.static, state.static?.memSlots?.total || 0,
 ]);
 
 function buildOverview(L) {
@@ -198,7 +216,7 @@ function buildOverview(L) {
 
   $('#fans').innerHTML = L.fans.length
     ? L.fans.map((f) => `<div class="fan"><svg class="spin" viewBox="0 0 24 24">${FAN_SVG}</svg><span class="fn">${esc(f.name)}</span><span class="fr"></span></div>`).join('')
-    : `<div class="empty">${state.meta?.platform === 'win32' ? 'Fan speeds need LibreHardwareMonitor running in the background.' : 'No fan sensors exposed by this hardware.'}</div>`;
+    : fanEmptyHTML(L);
   ov.fans = [...document.querySelectorAll('#fans .fan')].map((el) => ({ svg: el.querySelector('svg'), txt: el.querySelector('.fr'), angle: 0 }));
 
   ov.sig = overviewSig(L);
@@ -245,7 +263,7 @@ function paintOverview(dt) {
   const acpi = L.cpu.tempSource === 'acpi';
   ov.cpu.draw((cm || 0) / (hasT ? 105 : 100), fmt(cm), hasT ? '°C' : '%', hasT ? tempGrade(tween.tgt.get('cpu.temp'), 80, 92) : 'good', hasT ? (acpi ? 'SYSTEM' : 'TEMP') : 'LOAD');
   setText(ov.cpuK1, fmt(val('cpu.load')) + '%');
-  setText(ov.cpuK2, val('cpu.tmax') != null ? fmt(val('cpu.tmax')) + '°C' : state.meta?.platform === 'win32' ? 'needs LHM' : '—');
+  setText(ov.cpuK2, val('cpu.tmax') != null ? fmt(val('cpu.tmax')) + '°C' : L.sensorDriver === 'missing' ? 'needs driver' : L.sensorDriver === 'starting' ? '…' : '—');
 
   if (ov.gpu && L.gpus[ov.gpuSel]) {
     const i = ov.gpuSel, g = L.gpus[i];
@@ -405,7 +423,7 @@ function renderSystem() {
     <div class="card"><div class="card-head"><h3>Device</h3></div>
       ${spec('Hostname', S.os.hostname)}${spec('Make', S.system.manufacturer)}${spec('Model', S.system.model)}${spec('Operating system', `${S.os.distro} ${S.os.release}`)}${spec('Architecture', S.os.arch)}</div>
     <div class="card"><div class="card-head"><h3>Processor</h3></div>
-      ${spec('Model', S.cpu.brand)}${spec('Cores / threads', `${S.cpu.cores} / ${S.cpu.threads}`)}${spec(S.cpu.max ? 'Base / max clock' : 'Base clock', S.cpu.base ? S.cpu.base + (S.cpu.max ? ' / ' + S.cpu.max : '') + ' GHz' : '—')}${spec('Current clock', state.live?.cpu.ghz ? fmt(state.live.cpu.ghz, 2) + ' GHz' : '—')}${spec('Sensor source', L?.lhm ? 'LibreHardwareMonitor' : 'OS / ACPI')}</div>
+      ${spec('Model', S.cpu.brand)}${spec('Cores / threads', `${S.cpu.cores} / ${S.cpu.threads}`)}${spec(S.cpu.max ? 'Base / max clock' : 'Base clock', S.cpu.base ? S.cpu.base + (S.cpu.max ? ' / ' + S.cpu.max : '') + ' GHz' : '—')}${spec('Current clock', state.live?.cpu.ghz ? fmt(state.live.cpu.ghz, 2) + ' GHz' : '—')}${spec('Sensor source', L?.viaHelper && L.sensorDriver === 'ready' ? 'Built-in driver (PawnIO)' : L?.lhm ? 'LibreHardwareMonitor' : 'Windows / ACPI')}</div>
     <div class="card"><div class="card-head"><h3>Graphics</h3></div>
       ${S.gpus.map((g) => spec(g.integrated ? 'Integrated' : 'Discrete', `${g.model}${g.vram && !g.integrated ? ' · ' + (g.vram / 1024).toFixed(0) + ' GB' : ''}`)).join('') || '<div class="empty">None</div>'}</div>
     <div class="card"><div class="card-head"><h3>Memory modules</h3></div>
@@ -521,7 +539,7 @@ async function pollLive() {
     L.fans.forEach((f, i) => target('fan' + i, f.rpm));
 
     track('cpu.temp', 'Processor', L.cpu.tempSource === 'acpi' ? 'System temp (ACPI — not the CPU die)' : 'CPU package', L.cpu.temp, '°C', 105);
-    L.cpu.coreTemps.forEach((t, i) => track('cpu.core' + i, 'Processor', `Core #${i} temp`, t, '°C', 105));
+    L.cpu.coreTemps.forEach((t, i) => track('cpu.core' + i, 'Processor', `${(L.cpu.coreNames && L.cpu.coreNames[i]) || 'Core #' + i} temp`, t, '°C', 105));
     track('cpu.load', 'Processor', 'Total load', L.cpu.load, '%');
     track('cpu.clock', 'Processor', 'Avg clock', L.cpu.ghz, 'GHz', 6);
     L.gpus.forEach((gg, i) => {
@@ -591,6 +609,8 @@ function go(page) {
   if (page === 'space' && window.spaceOpen) window.spaceOpen();
 }
 document.addEventListener('click', (e) => {
+  const drv = e.target.closest('[data-action="driver"]');
+  if (drv) { enableDriver(drv); return; }
   const chip = e.target.closest('[data-gpu]');
   if (chip) { ov.gpuSel = +chip.dataset.gpu; ov.sig = null; if (state.live) buildOverview(state.live); return; }
   const n = e.target.closest('[data-page],[data-goto]');

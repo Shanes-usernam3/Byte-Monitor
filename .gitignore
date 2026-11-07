@@ -2,3 +2,4 @@ node_modules/
 dist/
 baseline/
 build/smartctl/
+build/sensors/

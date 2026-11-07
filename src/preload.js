@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld('byte', {
   onStatic: (cb) => ipcRenderer.on('static:update', (_e, s) => cb(s)),
   live: () => ipcRenderer.invoke('live'),
   storage: () => ipcRenderer.invoke('storage'),
+  installDriver: () => ipcRenderer.invoke('driver:install'),
   space: {
     targets: () => ipcRenderer.invoke('space:targets'),
     pick: () => ipcRenderer.invoke('space:pick'),

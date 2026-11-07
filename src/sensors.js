@@ -141,9 +141,69 @@ function startWinSensors() {
 }
 function winSnapshot() {
   startWinSensors();
-  return win.latest && Date.now() - win.at < 10000 ? win.latest : null;
+  const w = win.latest && Date.now() - win.at < 10000 ? win.latest : null;
+  const h = helperSnapshot();
+  if (h && Array.isArray(h.lhm) && h.lhm.length) return { ...(w || {}), lhm: h.lhm, hw: h.hw, viaHelper: true };
+  return w;
 }
 function lhmSensors() { const w = winSnapshot(); return w && Array.isArray(w.lhm) && w.lhm.length ? w.lhm : null; }
+
+// ---------- Built-in sensor driver (Windows) ----------
+// byte-sensors.exe = LibreHardwareMonitorLib + the signed PawnIO driver. Gives real
+// CPU package/core temps, fan RPM, motherboard temps, clocks and power — the
+// readings Windows itself doesn't expose. Same JSON shape as LHM's WMI classes.
+const helper = { proc: null, latest: null, at: 0, retryAt: 0, err: '' };
+function helperDir() { return process.resourcesPath ? path.join(process.resourcesPath, 'sensors') : null; }
+function helperExe() {
+  if (!isWin) return null;
+  const p = helperDir() && path.join(helperDir(), 'byte-sensors.exe');
+  return p && fs.existsSync(p) ? p : null;
+}
+function startHelper() {
+  if (!isWin || !active || helper.proc || Date.now() < helper.retryAt) return;
+  const exe = helperExe();
+  if (!exe) return;
+  const { spawn } = require('child_process');
+  // stdin stays open as a lifeline: when Byte Monitor exits the pipe closes and the helper quits
+  const p = spawn(exe, ['1500'], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+  helper.proc = p;
+  p.stderr.on('data', (d) => { helper.err = (helper.err + d.toString()).slice(-600); });
+  let buf = '';
+  p.stdout.on('data', (d) => {
+    buf += d.toString();
+    if (buf.length > 8e6) buf = '';
+    let i;
+    while ((i = buf.indexOf('@@END@@')) !== -1) {
+      const chunk = buf.slice(0, i).trim(); buf = buf.slice(i + 7);
+      try { helper.latest = JSON.parse(chunk); helper.at = Date.now(); } catch {}
+    }
+  });
+  p.on('error', () => { helper.proc = null; helper.retryAt = Date.now() + 30000; });
+  p.on('exit', () => { helper.proc = null; helper.retryAt = Date.now() + 15000; });
+}
+function stopHelper() { if (helper.proc) { try { helper.proc.kill(); } catch {} } helper.proc = null; }
+function helperSnapshot() { startHelper(); return helper.latest && Date.now() - helper.at < 10000 ? helper.latest : null; }
+// 'ready' | 'missing' (driver not installed) | 'starting' | 'unavailable' (dev build) | null (not Windows)
+function sensorDriverStatus() {
+  if (!isWin) return null;
+  if (!helperExe()) return 'unavailable';
+  if (!helper.latest) return 'starting';
+  return helper.latest.pawnio ? 'ready' : 'missing';
+}
+// Runs the bundled PawnIO installer silently (Byte Monitor already runs as admin)
+function installDriver() {
+  return new Promise((resolve) => {
+    const setup = helperDir() && path.join(helperDir(), 'PawnIO_setup.exe');
+    if (!isWin || !setup || !fs.existsSync(setup)) return resolve({ ok: false, error: 'Driver installer not found in this build.' });
+    execFile(setup, ['-install', '-silent'], { windowsHide: true, timeout: 180000 }, (err) => {
+      // restart the helper so it picks up the driver
+      stopHelper(); helper.latest = null; helper.retryAt = 0;
+      setTimeout(startHelper, 500);
+      if (err && err.killed) return resolve({ ok: false, error: 'The installer timed out.' });
+      resolve({ ok: !err || err.code === 0, code: err ? err.code : 0, error: err ? `Installer exited with code ${err.code}` : null });
+    });
+  });
+}
 
 // NVIDIA via nvidia-smi loop mode (one process, prints every 2s)
 const nv = { proc: null, rows: [], at: 0, retryAt: 0, absent: false };
@@ -175,6 +235,7 @@ function startNvidia() {
 }
 
 function stopSensors() {
+  stopHelper();
   for (const p of [win.proc, nv.proc]) { if (p) { try { p.kill(); } catch {} } }
   win.proc = null; nv.proc = null;
   if (isWin && si.powerShellRelease) { try { si.powerShellRelease(); } catch {} }
@@ -571,6 +632,7 @@ async function getStatic() {
 const cache = { fast: null, slow: null, battery: null, batteryAt: 0, gfx: null, gfxAt: 0 };
 let loopsStarted = false;
 let active = true;
+const seenFans = new Set();
 
 async function sampleFast() {
   const [load, speed] = await Promise.all([si.currentLoad(), si.cpuCurrentSpeed()]);
@@ -645,6 +707,7 @@ async function sampleSlow() {
   let cpuTempMax = temp.max ?? null;
   let coreTemps = temp.cores || [];
   let tempSource = cpuTemp != null ? 'sensor' : null;
+  let coreNames = null;
   let fans = isLinux ? linuxFans() : [];
   const extraTemps = [];
   const l = lhmSensors();
@@ -652,11 +715,18 @@ async function sampleSlow() {
     const temps = l.filter((x) => x.SensorType === 'Temperature');
     const pkg = temps.find((x) => /package|tctl|tdie|cpu/i.test(x.Name) && /cpu|intel|amd/i.test(x.Parent || '') && !/gpu/i.test(x.Parent || ''))
       || temps.find((x) => /package|tctl|tdie/i.test(x.Name) && !/gpu/i.test(x.Parent || ''));
-    if (pkg) { cpuTemp = round(pkg.Value); tempSource = 'lhm'; }
-    const cores = temps.filter((x) => /^core #\d+$/i.test(x.Name)).map((x) => round(x.Value));
-    if (cores.length) { coreTemps = cores; cpuTempMax = Math.max(...cores); }
-    fans = l.filter((x) => x.SensorType === 'Fan' && x.Value > 0).map((x) => ({ name: x.Name, rpm: Math.round(x.Value) }));
-    temps.filter((x) => !/core #|package|tctl|tdie/i.test(x.Name) && !/gpu/i.test(x.Parent || '')).slice(0, 8)
+    if (pkg && pkg.Value != null) { cpuTemp = round(pkg.Value); tempSource = 'lhm'; }
+    const isCpu = (x) => /cpu|intel|amd/i.test(x.Parent || '') && !/gpu/i.test(x.Parent || '');
+    const coreRe = /^((cpu )?core|p-core|e-core) #\d+$/i;   // Intel hybrid: "P-Core #1", "E-Core #3"
+    const cores = temps.filter((x) => isCpu(x) && coreRe.test(x.Name) && x.Value != null).map((x) => ({ name: x.Name, value: round(x.Value) }));
+    if (cores.length) { coreTemps = cores.map((c) => c.value); coreNames = cores.map((c) => c.name); cpuTempMax = Math.max(...coreTemps); }
+    const cmax = temps.find((x) => isCpu(x) && /^(cpu )?core max$/i.test(x.Name) && x.Value != null);
+    if (cmax) cpuTempMax = round(cmax.Value);
+    if (cpuTemp == null && cpuTempMax != null) { cpuTemp = cpuTempMax; tempSource = 'lhm'; }
+    // fans: show any fan that has spun this session (laptop fans often stop at idle → 0 RPM)
+    for (const x of l) if (x.SensorType === 'Fan' && x.Value > 0) seenFans.add(`${x.Parent}|${x.Name}`);
+    fans = l.filter((x) => x.SensorType === 'Fan' && x.Value != null && seenFans.has(`${x.Parent}|${x.Name}`)).map((x) => ({ name: x.Name, rpm: Math.round(x.Value) }));
+    temps.filter((x) => x.Value != null && x.Value > 0 && !/core #|package|tctl|tdie|distance|tjmax|average|max|ccd/i.test(x.Name) && !/gpu|cpu|intel|amd/i.test(x.Parent || '')).slice(0, 10)
       .forEach((x) => extraTemps.push({ name: x.Name, value: round(x.Value) }));
   } else if (isWin && win.slow && win.slow.acpi && win.slow.acpi.length) {
     const zones = win.slow.acpi.map((t) => t / 10 - 273.15).filter((t) => t > 5 && t < 120);
@@ -664,7 +734,8 @@ async function sampleSlow() {
   }
   if (temp.chipset != null) extraTemps.push({ name: 'Chipset', value: temp.chipset });
   cache.slow = {
-    temp: cpuTemp, tempMax: cpuTempMax, coreTemps, tempSource,
+    temp: cpuTemp, tempMax: cpuTempMax, coreTemps, coreNames, tempSource,
+    sensorDriver: sensorDriverStatus(), viaHelper: !!(helper.latest && helper.latest.lhm && helper.latest.lhm.length),
     gpus: buildGpus(controllers),
     battery: batteryHealth(battery), fans, extraTemps, lhm: !!l,
   };
@@ -684,14 +755,15 @@ function loop(fn, activeGap, idleGap) {
 function setActive(on) {
   if (active === on) return;
   active = on;
-  if (!on) { for (const p of [win.proc, nv.proc]) { if (p) { try { p.kill(); } catch {} } } win.proc = null; nv.proc = null; win.retryAt = 0; nv.retryAt = 0; }
-  else { startWinSensors(); if (nv.count) startNvidia(); }
+  if (!on) { stopHelper(); for (const p of [win.proc, nv.proc]) { if (p) { try { p.kill(); } catch {} } } win.proc = null; nv.proc = null; win.retryAt = 0; nv.retryAt = 0; helper.retryAt = 0; }
+  else { startWinSensors(); startHelper(); if (nv.count) startNvidia(); }
 }
 
 async function getLive() {
   if (!loopsStarted) {
     loopsStarted = true;
     startWinSensors();
+    startHelper();
     loop(sampleFast, 1000, 5000);
     loop(async () => { if (active || !cache.slow) await sampleSlow(); }, 2000, 10000);
   }
@@ -701,8 +773,9 @@ async function getLive() {
   const sl = cache.slow || { temp: null, tempMax: null, coreTemps: [], gpus: [], battery: { present: false, loading: true }, fans: [], extraTemps: [], lhm: false, loading: true };
   return {
     ts: Date.now(),
-    cpu: { load: f.load, coreLoads: f.coreLoads, temp: sl.temp, tempMax: sl.tempMax, coreTemps: sl.coreTemps, tempSource: sl.tempSource || null, ghz: f.ghz },
+    cpu: { load: f.load, coreLoads: f.coreLoads, temp: sl.temp, tempMax: sl.tempMax, coreTemps: sl.coreTemps, coreNames: sl.coreNames || null, tempSource: sl.tempSource || null, ghz: f.ghz },
     mem: f.mem, gpus: sl.gpus, battery: sl.battery, fans: sl.fans, extraTemps: sl.extraTemps, lhm: sl.lhm, loading: !!sl.loading,
+    sensorDriver: sl.sensorDriver ?? sensorDriverStatus(), viaHelper: !!sl.viaHelper,
   };
 }
 
@@ -734,8 +807,8 @@ async function getStorageNow() {
 }
 
 // for scripts/perf-check.js
-const _debug = () => ({ winAlive: !!win.proc, exit: win.exit, err: win.err, clk: win.clk, smartExe: smartctlExe(), winAgeMs: win.at ? Date.now() - win.at : null, keys: win.latest ? Object.keys(win.latest) : null,
+const _debug = () => ({ helper: { exe: helperExe(), alive: !!helper.proc, pawnio: helper.latest && helper.latest.pawnio, sensors: helper.latest && helper.latest.lhm ? helper.latest.lhm.length : null, err: helper.err }, winAlive: !!win.proc, exit: win.exit, err: win.err, clk: win.clk, smartExe: smartctlExe(), winAgeMs: win.at ? Date.now() - win.at : null, keys: win.latest ? Object.keys(win.latest) : null,
   eng: win.latest && win.latest.eng ? win.latest.eng.length : null, mem: win.latest && win.latest.mem ? win.latest.mem.length : null,
   lhm: win.latest && win.latest.lhm ? win.latest.lhm.length : null, slow: win.slow, nv: { count: nv.count, rows: nv.rows.length, absent: nv.absent } });
 
-module.exports = { getStatic, getLive, getStorage, stopSensors, setActive, _debug };
+module.exports = { getStatic, getLive, getStorage, stopSensors, setActive, installDriver, _debug };

@@ -58,6 +58,7 @@ ipcMain.handle('static', safe(async () => {
   return cached || fresh;
 }));
 ipcMain.handle('live', safe(() => sensors.getLive()));
+ipcMain.handle('driver:install', safe(() => (sensors.installDriver ? sensors.installDriver() : { ok: false, error: 'Not available in demo mode.' })));
 ipcMain.handle('storage', safe(() => sensors.getStorage()));
 ipcMain.handle('meta', () => ({ demo: DEMO, platform: process.platform, version: app.getVersion() }));
 
