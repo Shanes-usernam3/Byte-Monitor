@@ -21,6 +21,10 @@ const isLinux = process.platform === 'linux';
   extra.filter(Boolean).forEach((p) => { if (!have.includes(p) && fs.existsSync(p)) process.env.PATH += sep + p; });
 })();
 
+// Reuse ONE PowerShell session for every systeminformation call on Windows,
+// starting right away so the first-launch queries don't each spawn PowerShell.
+if (isWin && si.powerShellStart) { try { si.powerShellStart(); } catch {} }
+
 function round(n, d = 1) {
   if (n === null || n === undefined || Number.isNaN(n)) return null;
   const f = 10 ** d;
@@ -517,10 +521,8 @@ function cpuName(cpu) {
 // ---------- Static info (once) ----------
 async function getStatic() {
   const [system, cpu, os, graphics, mem] = await Promise.all([
-    si.system(), si.cpu(), si.osInfo(), si.graphics(), si.memLayout(),
+    si.system(), si.cpu(), si.osInfo(), cache.gfx ? Promise.resolve({ controllers: cache.gfx }) : fetchGraphics(), si.memLayout(),
   ]);
-  cache.gfx = (graphics.controllers || []).map((c) => ({ model: c.model, vendor: c.vendor, vram: c.vram, name: c.name }));
-  cache.gfxAt = Date.now();
   return {
     system: { manufacturer: system.manufacturer, model: system.model },
     cpu: { brand: cpuName(cpu), cores: cpu.physicalCores, threads: cpu.cores, base: cpu.speed || null, max: cpu.speedMax && cpu.speedMax > (cpu.speed || 0) * 1.05 ? cpu.speedMax : null },
@@ -556,13 +558,19 @@ async function sampleFast() {
   cache.fast = { load: round(load.currentLoad), coreLoads: load.cpus.map((c) => round(c.load, 0)), ghz, mem };
 }
 
-async function graphicsList() {
-  if (!cache.gfx || Date.now() - cache.gfxAt > 600000) {
-    const g = await si.graphics().catch(() => ({ controllers: [] }));
-    cache.gfx = (g.controllers || []).map((c) => ({ model: c.model, vendor: c.vendor, vram: c.vram, name: c.name }));
-    cache.gfxAt = Date.now();
-    nv.count = null;
+let gfxPending = null;
+function fetchGraphics() {
+  if (!gfxPending) {
+    gfxPending = si.graphics().catch(() => ({ controllers: [] })).then((g) => {
+      cache.gfx = (g.controllers || []).map((c) => ({ model: c.model, vendor: c.vendor, vram: c.vram, name: c.name }));
+      cache.gfxAt = Date.now(); nv.count = null; gfxPending = null;
+      return g;
+    });
   }
+  return gfxPending;
+}
+async function graphicsList() {
+  if (!cache.gfx || Date.now() - cache.gfxAt > 600000) await fetchGraphics();
   if (nv.count == null) nv.count = cache.gfx.filter((c) => /nvidia/i.test(`${c.vendor} ${c.model}`)).length;
   if (nv.count && active) startNvidia();
   // merge live NVIDIA readings onto the static list
@@ -653,18 +661,18 @@ function setActive(on) {
 async function getLive() {
   if (!loopsStarted) {
     loopsStarted = true;
-    if (isWin && si.powerShellStart) { try { si.powerShellStart(); } catch {} } // reuse one PowerShell for the remaining si calls
     startWinSensors();
     loop(sampleFast, 1000, 5000);
     loop(async () => { if (active || !cache.slow) await sampleSlow(); }, 2000, 10000);
   }
-  for (let i = 0; i < 160 && (!cache.fast || !cache.slow); i++) await new Promise((r) => setTimeout(r, 50));
+  // first call: wait for the quick CPU/RAM sample only; temps/GPU/battery fill in a moment later
+  for (let i = 0; i < 60 && !cache.fast; i++) await new Promise((r) => setTimeout(r, 50));
   const f = cache.fast || { load: 0, coreLoads: [], ghz: null, mem: { total: 1, used: 0, pct: 0 } };
-  const sl = cache.slow || { temp: null, tempMax: null, coreTemps: [], gpus: [], battery: { present: false }, fans: [], extraTemps: [], lhm: false };
+  const sl = cache.slow || { temp: null, tempMax: null, coreTemps: [], gpus: [], battery: { present: false, loading: true }, fans: [], extraTemps: [], lhm: false, loading: true };
   return {
     ts: Date.now(),
     cpu: { load: f.load, coreLoads: f.coreLoads, temp: sl.temp, tempMax: sl.tempMax, coreTemps: sl.coreTemps, tempSource: sl.tempSource || null, ghz: f.ghz },
-    mem: f.mem, gpus: sl.gpus, battery: sl.battery, fans: sl.fans, extraTemps: sl.extraTemps, lhm: sl.lhm,
+    mem: f.mem, gpus: sl.gpus, battery: sl.battery, fans: sl.fans, extraTemps: sl.extraTemps, lhm: sl.lhm, loading: !!sl.loading,
   };
 }
 

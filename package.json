@@ -70,7 +70,10 @@
         "smartmontools",
         "lm-sensors"
       ]
-    }
+    },
+    "electronLanguages": [
+      "en-US"
+    ]
   },
   "homepage": "https://github.com/shanes-usernam3/Byte-Monitor"
 }
