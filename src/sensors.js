@@ -335,6 +335,9 @@ function diskHealth(d, rel) {
     wearUsed: null,          // % of rated endurance used (SSD/NVMe)
     reallocated: null,
     pending: null,
+    unsafeShutdowns: null,
+    dataWritten: null,      // bytes
+    nvme: /nvme/i.test(`${d.interfaceType || ''} ${d.type || ''}`),
     mediaErrors: null,
     healthPct: null,
     rating: 'Unknown',
@@ -354,6 +357,10 @@ function diskHealth(d, rel) {
       if (nv.media_errors != null) info.mediaErrors = nv.media_errors;
       if (nv.temperature != null && info.temperature == null) info.temperature = nv.temperature;
       if (nv.power_on_hours != null) info.powerOnHours = nv.power_on_hours;
+      if (nv.power_cycles != null && info.powerCycles == null) info.powerCycles = nv.power_cycles;
+      if (nv.unsafe_shutdowns != null) info.unsafeShutdowns = nv.unsafe_shutdowns;
+      if (nv.data_units_written != null) info.dataWritten = nv.data_units_written * 512000; // NVMe data unit = 1000 × 512 bytes
+      info.nvme = true;
     }
     const table = s.ata_smart_attributes && s.ata_smart_attributes.table;
     if (Array.isArray(table)) {
@@ -426,6 +433,16 @@ function batteryHealth(b) {
   };
 }
 
+// CPU name as the OS reports it ("12th Gen Intel(R) Core(TM) i5-1235U"); systeminformation
+// drops the generation prefix, which gave "Intel Gen Intel Core..."
+function cpuName(cpu) {
+  const raw = (os.cpus()[0] && os.cpus()[0].model) || '';
+  const clean = raw.replace(/\(R\)/gi, '®').replace(/\(TM\)/gi, '™').replace(/\s+CPU\s+@.*$/i, '').replace(/\s+\d+-Core Processor$/i, '').replace(/\s+/g, ' ').trim();
+  if (clean) return clean;
+  const b = String(cpu.brand || '');
+  return b.toLowerCase().includes(String(cpu.manufacturer || '').toLowerCase()) ? b : `${cpu.manufacturer} ${b}`.trim();
+}
+
 // ---------- Static info (once) ----------
 async function getStatic() {
   const [system, cpu, os, graphics, mem] = await Promise.all([
@@ -435,7 +452,7 @@ async function getStatic() {
   cache.gfxAt = Date.now();
   return {
     system: { manufacturer: system.manufacturer, model: system.model },
-    cpu: { brand: `${cpu.manufacturer} ${cpu.brand}`.trim(), cores: cpu.physicalCores, threads: cpu.cores, speed: cpu.speedMax || cpu.speed },
+    cpu: { brand: cpuName(cpu), cores: cpu.physicalCores, threads: cpu.cores, speed: cpu.speedMax || cpu.speed },
     os: { distro: os.distro, release: os.release, arch: os.arch, hostname: os.hostname, platform: os.platform },
     gpus: (graphics.controllers || []).filter((g) => !VIRTUAL_GPU.test(`${g.model} ${g.vendor}`)).map((g) => ({ model: g.model, vendor: g.vendor, vram: g.vram, integrated: isIntegrated(g) })),
     memModules: mem.map((m) => ({ size: m.size, type: m.type, speed: m.clockSpeed, slot: m.bank })),
@@ -513,6 +530,7 @@ async function sampleSlow() {
   let cpuTemp = temp.main ?? null;
   let cpuTempMax = temp.max ?? null;
   let coreTemps = temp.cores || [];
+  let tempSource = cpuTemp != null ? 'sensor' : null;
   let fans = isLinux ? linuxFans() : [];
   const extraTemps = [];
   const l = lhmSensors();
@@ -520,7 +538,7 @@ async function sampleSlow() {
     const temps = l.filter((x) => x.SensorType === 'Temperature');
     const pkg = temps.find((x) => /package|tctl|tdie|cpu/i.test(x.Name) && /cpu|intel|amd/i.test(x.Parent || '') && !/gpu/i.test(x.Parent || ''))
       || temps.find((x) => /package|tctl|tdie/i.test(x.Name) && !/gpu/i.test(x.Parent || ''));
-    if (pkg) cpuTemp = round(pkg.Value);
+    if (pkg) { cpuTemp = round(pkg.Value); tempSource = 'lhm'; }
     const cores = temps.filter((x) => /^core #\d+$/i.test(x.Name)).map((x) => round(x.Value));
     if (cores.length) { coreTemps = cores; cpuTempMax = Math.max(...cores); }
     fans = l.filter((x) => x.SensorType === 'Fan' && x.Value > 0).map((x) => ({ name: x.Name, rpm: Math.round(x.Value) }));
@@ -528,11 +546,11 @@ async function sampleSlow() {
       .forEach((x) => extraTemps.push({ name: x.Name, value: round(x.Value) }));
   } else if (isWin && win.slow && win.slow.acpi && win.slow.acpi.length) {
     const zones = win.slow.acpi.map((t) => t / 10 - 273.15).filter((t) => t > 5 && t < 120);
-    if (zones.length) cpuTemp = round(Math.max(...zones));
+    if (zones.length) { cpuTemp = round(Math.max(...zones)); tempSource = 'acpi'; } // motherboard ACPI zone, not the CPU die
   }
   if (temp.chipset != null) extraTemps.push({ name: 'Chipset', value: temp.chipset });
   cache.slow = {
-    temp: cpuTemp, tempMax: cpuTempMax, coreTemps,
+    temp: cpuTemp, tempMax: cpuTempMax, coreTemps, tempSource,
     gpus: buildGpus(controllers),
     battery: batteryHealth(battery), fans, extraTemps, lhm: !!l,
   };
@@ -569,7 +587,7 @@ async function getLive() {
   const sl = cache.slow || { temp: null, tempMax: null, coreTemps: [], gpus: [], battery: { present: false }, fans: [], extraTemps: [], lhm: false };
   return {
     ts: Date.now(),
-    cpu: { load: f.load, coreLoads: f.coreLoads, temp: sl.temp, tempMax: sl.tempMax, coreTemps: sl.coreTemps, ghz: f.ghz },
+    cpu: { load: f.load, coreLoads: f.coreLoads, temp: sl.temp, tempMax: sl.tempMax, coreTemps: sl.coreTemps, tempSource: sl.tempSource || null, ghz: f.ghz },
     mem: f.mem, gpus: sl.gpus, battery: sl.battery, fans: sl.fans, extraTemps: sl.extraTemps, lhm: sl.lhm,
   };
 }
