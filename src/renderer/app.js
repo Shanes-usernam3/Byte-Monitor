@@ -350,7 +350,7 @@ function renderBattery() {
         <div><span>Wear</span><b>${fmt(b.wearPct, 1)}%${lost ? ' (−' + fmt(lost) + ' ' + esc(b.unit) + ')' : ''}</b></div>
         <div><span>Charge cycles</span><b>${b.cycles ?? '—'}</b></div>
         <div><span>Voltage</span><b>${b.voltage ? fmt(b.voltage, 2) + ' V' : '—'}</b></div>
-        <div><span>Time remaining</span><b>${b.timeRemaining ? Math.floor(b.timeRemaining / 60) + 'h ' + (b.timeRemaining % 60) + 'm' : '—'}</b></div>
+        <div><span>Time remaining</span><b>${b.timeRemaining ? Math.floor(b.timeRemaining / 60) + 'h ' + (b.timeRemaining % 60) + 'm' : b.acConnected ? 'On AC power' : '—'}</b></div>
         <div><span>Rating</span><b>${esc(b.rating)}</b></div>
       </div>
       <div class="explain">Health compares what the battery can hold when fully charged today against what it was designed to hold when new. 80%+ is healthy; 60–80% is normal wear but expect shorter runtime; under 60% is usually worth replacing.</div>
@@ -399,7 +399,7 @@ function renderSystem() {
     <div class="card"><div class="card-head"><h3>Device</h3></div>
       ${spec('Hostname', S.os.hostname)}${spec('Make', S.system.manufacturer)}${spec('Model', S.system.model)}${spec('Operating system', `${S.os.distro} ${S.os.release}`)}${spec('Architecture', S.os.arch)}</div>
     <div class="card"><div class="card-head"><h3>Processor</h3></div>
-      ${spec('Model', S.cpu.brand)}${spec('Cores / threads', `${S.cpu.cores} / ${S.cpu.threads}`)}${spec('Max clock', S.cpu.speed ? S.cpu.speed + ' GHz' : '—')}${spec('Sensor source', L?.lhm ? 'LibreHardwareMonitor' : 'OS / ACPI')}</div>
+      ${spec('Model', S.cpu.brand)}${spec('Cores / threads', `${S.cpu.cores} / ${S.cpu.threads}`)}${spec(S.cpu.max ? 'Base / max clock' : 'Base clock', S.cpu.base ? S.cpu.base + (S.cpu.max ? ' / ' + S.cpu.max : '') + ' GHz' : '—')}${spec('Current clock', state.live?.cpu.ghz ? fmt(state.live.cpu.ghz, 2) + ' GHz' : '—')}${spec('Sensor source', L?.lhm ? 'LibreHardwareMonitor' : 'OS / ACPI')}</div>
     <div class="card"><div class="card-head"><h3>Graphics</h3></div>
       ${S.gpus.map((g) => spec(g.integrated ? 'Integrated' : 'Discrete', `${g.model}${g.vram && !g.integrated ? ' · ' + (g.vram / 1024).toFixed(0) + ' GB' : ''}`)).join('') || '<div class="empty">None</div>'}</div>
     <div class="card"><div class="card-head"><h3>Memory modules</h3></div>
@@ -581,6 +581,7 @@ function go(page) {
   $('#pageTitle').textContent = titles[page];
   if (page === 'thermals') renderSensors();
   if (page === 'battery') renderBattery();
+  if (page === 'system') renderSystem();
   if (page === 'space' && window.spaceOpen) window.spaceOpen();
 }
 document.addEventListener('click', (e) => {
