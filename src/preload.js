@@ -3,6 +3,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('byte', {
   meta: () => ipcRenderer.invoke('meta'),
   static: () => ipcRenderer.invoke('static'),
+  onStatic: (cb) => ipcRenderer.on('static:update', (_e, s) => cb(s)),
   live: () => ipcRenderer.invoke('live'),
   storage: () => ipcRenderer.invoke('storage'),
   space: {

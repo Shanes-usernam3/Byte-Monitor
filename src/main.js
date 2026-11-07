@@ -45,7 +45,18 @@ function createWindow() {
 
 const safe = (fn) => async () => { try { return await fn(); } catch (e) { return { error: String(e && e.message || e) }; } };
 
-ipcMain.handle('static', safe(() => sensors.getStatic()));
+// System info barely changes: answer instantly from last run's copy, refresh in the background
+const staticFile = () => path.join(app.getPath('userData'), 'system-info.json');
+ipcMain.handle('static', safe(async () => {
+  let cached = null;
+  if (!DEMO) { try { cached = JSON.parse(fs.readFileSync(staticFile(), 'utf8')); } catch {} }
+  const fresh = sensors.getStatic().then((s) => {
+    if (!DEMO) { try { fs.writeFileSync(staticFile(), JSON.stringify(s)); } catch {} }
+    if (cached && win && !win.isDestroyed()) win.webContents.send('static:update', s);
+    return s;
+  });
+  return cached || fresh;
+}));
 ipcMain.handle('live', safe(() => sensors.getLive()));
 ipcMain.handle('storage', safe(() => sensors.getStorage()));
 ipcMain.handle('meta', () => ({ demo: DEMO, platform: process.platform, version: app.getVersion() }));

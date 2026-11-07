@@ -9,9 +9,16 @@ const sensors = require(path.join(src, 'sensors.js'));
 const cpuTimes = () => os.cpus().reduce((a, c) => { const t = c.times; a.idle += t.idle; a.total += t.user + t.nice + t.sys + t.irq + t.idle; return a; }, { idle: 0, total: 0 });
 
 (async () => {
-  await sensors.getStatic();
-  await sensors.getLive();           // starts background loops
-  await sensors.getStorage();
+  // start-up: the renderer asks for these three in parallel when the window opens
+  const t0s = Date.now(), times = {};
+  await Promise.all([
+    sensors.getStatic().then(() => { times.static = Date.now() - t0s; }),
+    sensors.getLive().then(() => { times.firstLive = Date.now() - t0s; }),
+    sensors.getStorage().then(() => { times.storage = Date.now() - t0s; }),
+  ]);
+  const st = `startup ms — system info ${times.static}, first live reading ${times.firstLive}, drives ${times.storage}`;
+  console.log(st);
+  if (process.env.GITHUB_ACTIONS) console.log(`::notice title=startup ${path.relative(process.cwd(), src)}::${st}`);
   await new Promise((r) => setTimeout(r, 5000)); // let start-up settle
   const a = cpuTimes();
   const t0 = Date.now();

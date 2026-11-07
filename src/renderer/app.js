@@ -221,6 +221,8 @@ function renderOverviewSlow() {
         <div class="cap-row"><div class="cap-lbl">Current max <b>${fmt(b.fullCapacity)} ${esc(b.unit)}</b></div><div class="bar ${bg}"><i style="width:${b.healthPct ?? 0}%"></i></div></div>
       </div>
       <div style="margin-top:12px"><button class="link" data-goto="battery">Battery details →</button></div>`);
+  } else if (b.loading) {
+    setHTMLIfChanged('#batteryMini', `<div class="card-head"><h3>Battery health</h3></div><div class="empty">Reading battery…</div>`);
   } else {
     setHTMLIfChanged('#batteryMini', `<div class="card-head"><h3>Battery health</h3><span class="pill na">Desktop</span></div><div class="empty">No battery detected — this looks like a desktop or the battery is removed.</div>`);
   }
@@ -325,6 +327,7 @@ function renderStorage() {
 function renderBattery() {
   const b = state.live?.battery;
   if (!b) return;
+  if (b.loading) { setHTMLIfChanged('#batteryFull', `<div class="card"><div class="empty">Reading battery…</div></div>`); return; }
   if (!b.present) {
     setHTMLIfChanged('#batteryFull', `<div class="card"><div class="empty">No battery detected. Battery health is only available on laptops and devices with an internal battery.</div></div>`);
     return;
@@ -604,14 +607,18 @@ function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.re
   state.meta = await window.byte.meta();
   if (state.meta.demo) $('#demoBadge').classList.remove('hidden');
   $('#srcNote').textContent = `v${state.meta.version} · ${state.meta.platform === 'win32' ? 'Windows' : 'Linux'}`;
-  const S = await window.byte.static();
-  if (S && !S.error) {
+  const applyStatic = (S) => {
+    if (!S || S.error) return;
     state.static = S;
     $('#hostLine').textContent = `${S.os.hostname} · ${S.system.manufacturer} ${S.system.model}`.trim();
     renderSystem();
-  }
+    ov.sig = null; // rebuild cards with names
+  };
+  window.byte.onStatic(applyStatic);
+  const staticReady = window.byte.static().then(applyStatic); // live readings start without waiting for this
   pollStorage();
   await pollLive();
+  staticReady.then(() => { if (state.live) buildOverview(state.live); });
   requestAnimationFrame(frame);
   setInterval(pollLive, 1000);
   setInterval(pollStorage, 120000);
