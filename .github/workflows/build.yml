@@ -45,12 +45,46 @@ jobs:
           Get-ChildItem "$src" -Recurse -Include COPYING*,LICENSE* | Select-Object -First 1 | Copy-Item -Destination build\smartctl\COPYING.txt
           "smartctl from smartmontools (https://www.smartmontools.org), GPL-2.0. Source: https://github.com/smartmontools/smartmontools" | Set-Content build\smartctl\NOTICE.txt
           & build\smartctl\smartctl.exe --version | Select-Object -First 1
+      # Sensor helper: LibreHardwareMonitorLib + PawnIO → real CPU temps, fans, motherboard sensors
+      - uses: actions/setup-dotnet@v4
+        if: runner.os == 'Windows'
+        with:
+          dotnet-version: 8.0.x
+      - name: Build sensor helper (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          dotnet publish sensors-helper/ByteSensors.csproj -c Release -o build/sensors
+          if ($LASTEXITCODE -ne 0) { throw 'helper build failed' }
+          Copy-Item sensors-helper/THIRD-PARTY-NOTICES.txt, sensors-helper/LICENSE-LibreHardwareMonitorLib-MPL-2.0.txt build/sensors/
+          Get-ChildItem build/sensors -Exclude *.exe,*.txt | Remove-Item -Recurse -Force
+          gh release download --repo namazso/PawnIO.Setup --pattern '*.exe' --dir build/pawnio --clobber
+          $setup = Get-ChildItem build/pawnio -Filter *.exe | Select-Object -First 1
+          if (-not $setup) { throw 'PawnIO setup not found in latest release' }
+          Copy-Item $setup.FullName build/sensors/PawnIO_setup.exe
+          "PawnIO setup: $($setup.Name) $([math]::Round($setup.Length/1KB)) KB"
+          Get-ChildItem build/sensors | Format-Table Name, Length
+      - name: Smoke-test sensor helper (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $out = & build/sensors/byte-sensors.exe --once 2>&1 | Out-String
+          $json = ($out -split '@@END@@')[0].Trim()
+          $o = $json | ConvertFrom-Json
+          $types = ($o.lhm | Group-Object SensorType | ForEach-Object { "$($_.Name)=$($_.Count)" }) -join ', '
+          $msg = "helper OK: $($o.hw.Count) devices, $($o.lhm.Count) sensors ($types); PawnIO installed: $($o.pawnio)"
+          "::notice title=sensor helper::$msg"
+          if ($o.hw.Count -lt 1) { throw 'helper returned no hardware' }
       - run: ${{ matrix.cmd }}
       - name: Check smartctl is bundled (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           if (-not (Test-Path dist\win-unpacked\resources\smartctl\smartctl.exe)) { throw 'smartctl.exe missing from build' }
+          if (-not (Test-Path dist\win-unpacked\resources\sensors\byte-sensors.exe)) { throw 'byte-sensors.exe missing from build' }
+          if (-not (Test-Path dist\win-unpacked\resources\sensors\PawnIO_setup.exe)) { throw 'PawnIO_setup.exe missing from build' }
           & dist\win-unpacked\resources\smartctl\smartctl.exe --version | Select-Object -First 1
       - name: Read version
         id: ver
