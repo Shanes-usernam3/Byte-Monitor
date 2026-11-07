@@ -153,7 +153,7 @@ const ov = { sig: null, html: {}, fans: [] };
 const overviewSig = (L) => JSON.stringify([
   Math.min(L.cpu.coreLoads.length, 16), L.cpu.temp != null,
   L.gpus.map((g) => [g.model, g.temp != null, g.load != null]),
-  L.fans.map((f) => f.name), !!state.static,
+  L.fans.map((f) => f.name), !!state.static, state.static?.memSlots?.total || 0,
 ]);
 
 function buildOverview(L) {
@@ -182,10 +182,14 @@ function buildOverview(L) {
     $('#statGpu').innerHTML = `<div class="label">Graphics</div><div class="empty">No GPU sensors found</div>`;
   }
 
-  $('#statMem').innerHTML = `<div class="label">Memory</div><div class="sub">${gb(L.mem.total)} installed</div><div class="gauge"></div>
-    <div class="row">Used <b class="k1"></b></div><div class="row">Swap <b class="k2"></b></div>`;
+  // RAM slots: "Slot 1 · 8 GB DDR4", empty slots shown as "Empty"
+  const slots = S?.memSlots?.slots?.length ? S.memSlots.slots : (S?.memModules || []).map((m, i) => ({ label: `Slot ${i + 1}`, size: m.size, type: m.type }));
+  const two = slots.length > 2; // 3+ slots: compact 2-column grid so the card stays the same height
+  const slotRows = slots.map((s) => `<div class="row slot ${s.empty ? 'empty' : ''}" title="${esc(s.label)}: ${s.empty ? 'empty' : gb(s.size) + ' ' + esc(s.type || '') + (s.speed ? ' ' + s.speed + ' MT/s' : '')}">${esc(s.label)} <b>${s.empty ? 'Empty' : gb(s.size).replace('.0 GB', ' GB') + (s.type && !two ? ' ' + esc(s.type) : '')}</b></div>`).join('');
+  $('#statMem').innerHTML = `<div class="label">Memory</div><div class="sub k1"></div><div class="gauge"></div>
+    <div class="slots ${two ? 'two' : ''}">${slotRows || '<div class="row">Slots <b>not reported</b></div>'}</div>`;
   ov.mem = makeGauge($('#statMem .gauge'), { size: 112, stroke: 9, arc: 270, sub: 'IN USE' });
-  ov.memK1 = $('#statMem .k1'); ov.memK2 = $('#statMem .k2');
+  ov.memK1 = $('#statMem .k1'); ov.memK2 = null;
 
   const n = Math.min(L.cpu.coreLoads.length, 16);
   $('#cores').style.gridTemplateColumns = `repeat(${Math.max(n, 1)}, 1fr)`;
@@ -257,8 +261,7 @@ function paintOverview(dt) {
 
   const mp = val('mem.pct');
   ov.mem.draw((mp || 0) / 100, fmt(mp), '%', (tween.tgt.get('mem.pct') || 0) < 85 ? 'good' : 'fair');
-  setText(ov.memK1, gb(val('mem.used')));
-  setText(ov.memK2, gb(val('mem.swap')));
+  setText(ov.memK1, `${gb(val('mem.used'))} of ${gb(L.mem.total)} in use`);
 
   ov.cores.forEach((el, i) => {
     const v = val('core' + i) || 0;
@@ -406,7 +409,7 @@ function renderSystem() {
     <div class="card"><div class="card-head"><h3>Graphics</h3></div>
       ${S.gpus.map((g) => spec(g.integrated ? 'Integrated' : 'Discrete', `${g.model}${g.vram && !g.integrated ? ' · ' + (g.vram / 1024).toFixed(0) + ' GB' : ''}`)).join('') || '<div class="empty">None</div>'}</div>
     <div class="card"><div class="card-head"><h3>Memory modules</h3></div>
-      ${S.memModules.map((m, i) => spec(m.slot || 'Slot ' + (i + 1), `${gb(m.size)} ${m.type || ''} ${m.speed ? m.speed + ' MT/s' : ''}`)).join('') || '<div class="empty">Not reported</div>'}</div>`;
+      ${(S.memSlots?.slots?.length ? S.memSlots.slots : S.memModules.map((m, i) => ({ label: m.slot || 'Slot ' + (i + 1), ...m }))).map((m) => spec(m.label, m.empty ? 'Empty' : `${gb(m.size)} ${m.type || ''} ${m.speed ? m.speed + ' MT/s' : ''}`)).join('') || '<div class="empty">Not reported</div>'}</div>`;
 }
 
 // ---------- chart (redrawn every frame, scrolls continuously) ----------

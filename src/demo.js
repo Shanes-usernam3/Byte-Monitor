@@ -11,6 +11,9 @@ module.exports = {
       os: { distro: 'Windows 11 Pro', release: '24H2', arch: 'x64', hostname: 'HP-BENCH-01', platform: 'win32' },
       gpus: [{ model: 'NVIDIA GeForce RTX 3070 Laptop GPU', vendor: 'NVIDIA', vram: 8192, integrated: false }, { model: 'AMD Radeon(TM) Graphics', vendor: 'AMD', vram: 512, integrated: true }],
       memModules: [{ size: 17179869184, type: 'DDR4', speed: 3200 }, { size: 17179869184, type: 'DDR4', speed: 3200 }],
+      memSlots: { total: 4, known: true, slots: [
+        { label: 'Slot 1', size: 17179869184, type: 'DDR4', speed: 3200, empty: false }, { label: 'Slot 2', size: 17179869184, type: 'DDR4', speed: 3200, empty: false },
+        { label: 'Slot 3', size: 0, empty: true }, { label: 'Slot 4', size: 0, empty: true }] },
     };
   },
   async getLive() {
