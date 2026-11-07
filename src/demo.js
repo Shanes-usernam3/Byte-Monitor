@@ -22,8 +22,9 @@ module.exports = {
         load: Math.round(coreLoads.reduce((a, b) => a + b, 0) / 16),
         coreLoads,
         temp: wobble(62, 6),
-        tempMax: wobble(71, 5),
-        coreTemps: Array.from({ length: 8 }, (_, i) => wobble(58 + i, 5)),
+        tempMax: process.env.DEMO_ACPI ? null : wobble(71, 5),
+        coreTemps: process.env.DEMO_ACPI ? [] : Array.from({ length: 8 }, (_, i) => wobble(58 + i, 5)),
+        tempSource: process.env.DEMO_ACPI ? 'acpi' : 'lhm',
         ghz: wobble(3.6, 0.4),
       },
       mem: { total: 34359738368, used: 14.2e9 + Math.random() * 4e8, pct: wobble(42, 2), swapTotal: 4e9, swapUsed: 3e8 },
@@ -45,7 +46,7 @@ module.exports = {
   async getStorage() {
     return {
       disks: [
-        { name: 'Samsung SSD 980 PRO 1TB', device: 'nvme0', type: 'NVMe', interface: 'NVMe', sizeGB: 1000, serial: 'S5GXNX0R', firmware: '5B2QGXA7', smartStatus: 'Ok', temperature: 41, powerOnHours: 6218, powerCycles: 1432, wearUsed: 4, reallocated: null, pending: null, mediaErrors: 0, healthPct: 96, rating: 'Good', notes: [] },
+        { name: 'Samsung SSD 980 PRO 1TB', device: 'nvme0', type: 'NVMe', interface: 'NVMe', sizeGB: 1000, serial: 'S5GXNX0R', firmware: '5B2QGXA7', smartStatus: 'Ok', temperature: 41, powerOnHours: 6218, powerCycles: 1432, wearUsed: 4, reallocated: null, pending: null, mediaErrors: 0, nvme: true, unsafeShutdowns: 87, dataWritten: 11.0e12, healthPct: 96, rating: 'Good', notes: [] },
         { name: 'WDC WD20EZAZ-00GGJB0', device: 'sda', type: 'HD', interface: 'SATA', sizeGB: 2000, serial: 'WD-WX92A', firmware: '80.00A80', smartStatus: 'Ok', temperature: 36, powerOnHours: 21907, powerCycles: 980, wearUsed: null, reallocated: 8, pending: 1, mediaErrors: null, healthPct: 79, rating: 'Fair', notes: [] },
       ],
       volumes: [

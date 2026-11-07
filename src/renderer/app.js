@@ -2,7 +2,7 @@
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const fmt = (n, d = 0) => (n === null || n === undefined || Number.isNaN(n) ? '—' : Number(n).toFixed(d));
-const gb = (b) => (b ? (b / 1073741824).toFixed(b > 1e11 ? 0 : 1) + ' GB' : '—');
+const gb = (b) => (b == null || Number.isNaN(b) ? '—' : b === 0 ? '0 GB' : (b / 1073741824).toFixed(b > 1e11 ? 0 : 1) + ' GB');
 const tb = (b) => (b >= 1e12 ? (b / 1e12).toFixed(2) + ' TB' : (b / 1e9).toFixed(0) + ' GB');
 
 const state = { static: null, live: null, storage: null, meta: null, stats: {} };
@@ -124,7 +124,7 @@ function overall() {
   const parts = [];
   if (L && L.cpu.temp != null) {
     const t = L.cpu.temp;
-    parts.push({ name: 'CPU temp', val: `${fmt(t)}°C`, score: t < 75 ? 100 : t < 85 ? 80 : t < 92 ? 60 : 35, grade: tempGrade(t) });
+    parts.push({ name: L.cpu.tempSource === 'acpi' ? 'System temp' : 'CPU temp', val: `${fmt(t)}°C`, score: t < 75 ? 100 : t < 85 ? 80 : t < 92 ? 60 : 35, grade: tempGrade(t) });
   }
   const gpu = L && L.gpus.find((g) => g.temp != null);
   if (gpu) parts.push({ name: 'GPU temp', val: `${fmt(gpu.temp)}°C`, score: gpu.temp < 78 ? 100 : gpu.temp < 88 ? 75 : 40, grade: tempGrade(gpu.temp, 82, 92) });
@@ -236,9 +236,10 @@ function paintOverview(dt) {
 
   const hasT = L.cpu.temp != null;
   const cm = val(hasT ? 'cpu.temp' : 'cpu.load');
-  ov.cpu.draw((cm || 0) / (hasT ? 105 : 100), fmt(cm), hasT ? '°C' : '%', hasT ? tempGrade(tween.tgt.get('cpu.temp'), 80, 92) : 'good', hasT ? 'TEMP' : 'LOAD');
+  const acpi = L.cpu.tempSource === 'acpi';
+  ov.cpu.draw((cm || 0) / (hasT ? 105 : 100), fmt(cm), hasT ? '°C' : '%', hasT ? tempGrade(tween.tgt.get('cpu.temp'), 80, 92) : 'good', hasT ? (acpi ? 'SYSTEM' : 'TEMP') : 'LOAD');
   setText(ov.cpuK1, fmt(val('cpu.load')) + '%');
-  setText(ov.cpuK2, val('cpu.tmax') != null ? fmt(val('cpu.tmax')) + '°C' : '—');
+  setText(ov.cpuK2, val('cpu.tmax') != null ? fmt(val('cpu.tmax')) + '°C' : state.meta?.platform === 'win32' ? 'needs LHM' : '—');
 
   if (ov.gpu && L.gpus[ov.gpuSel]) {
     const i = ov.gpuSel, g = L.gpus[i];
@@ -305,8 +306,10 @@ function renderStorage() {
           ${a('Power-on hours', d.powerOnHours != null ? d.powerOnHours.toLocaleString() + ' h' : '—')}
           ${a('Power cycles', d.powerCycles != null ? d.powerCycles.toLocaleString() : '—')}
           ${a('Life used', d.wearUsed != null ? d.wearUsed + '%' : '—', d.wearUsed > 50)}
-          ${a('Reallocated', d.reallocated != null ? d.reallocated : '—', d.reallocated > 0)}
-          ${a('Pending sectors', d.pending != null ? d.pending : '—', d.pending > 0)}
+          ${d.nvme ? a('Unsafe shutdowns', d.unsafeShutdowns != null ? d.unsafeShutdowns.toLocaleString() : '—')
+    : a('Reallocated', d.reallocated != null ? d.reallocated : '—', d.reallocated > 0)}
+          ${d.nvme ? a('Data written', d.dataWritten != null ? (d.dataWritten >= 1e12 ? (d.dataWritten / 1e12).toFixed(1) + ' TB' : (d.dataWritten / 1e9).toFixed(0) + ' GB') : '—')
+    : a('Pending sectors', d.pending != null ? d.pending : '—', d.pending > 0)}
           ${a('Media errors', d.mediaErrors != null ? d.mediaErrors : '—', d.mediaErrors > 0)}
         </div>
         ${d.notes.map((n) => `<div class="note">ⓘ ${esc(n)}</div>`).join('')}
@@ -511,7 +514,7 @@ async function pollLive() {
     target('mem.pct', L.mem.pct); target('mem.used', L.mem.used); target('mem.swap', L.mem.swapUsed);
     L.fans.forEach((f, i) => target('fan' + i, f.rpm));
 
-    track('cpu.temp', 'Processor', 'CPU package', L.cpu.temp, '°C', 105);
+    track('cpu.temp', 'Processor', L.cpu.tempSource === 'acpi' ? 'System temp (ACPI — not the CPU die)' : 'CPU package', L.cpu.temp, '°C', 105);
     L.cpu.coreTemps.forEach((t, i) => track('cpu.core' + i, 'Processor', `Core #${i} temp`, t, '°C', 105));
     track('cpu.load', 'Processor', 'Total load', L.cpu.load, '%');
     track('cpu.clock', 'Processor', 'Avg clock', L.cpu.ghz, 'GHz', 6);
@@ -533,6 +536,8 @@ async function pollLive() {
     }
     (state.storage?.disks || []).forEach((d) => track('disk.' + d.device, 'Drives', d.name, d.temperature, '°C', 80));
 
+    const lg = document.querySelector('.legend');
+    if (lg) setText(lg.lastChild, L.cpu.tempSource === 'acpi' ? 'System temp °C' : 'Temp °C');
     renderOverviewSlow();
     if ($('#page-battery').classList.contains('active')) renderBattery();
     if ($('#page-thermals').classList.contains('active')) renderSensors();

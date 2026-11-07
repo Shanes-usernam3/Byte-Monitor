@@ -1,7 +1,7 @@
 {
   "name": "byte-monitor",
-  "version": "0.1.3",
-  "description": "Byte Monitor — desktop hardware health & space monitor by HardPoint Networks",
+  "version": "0.1.4",
+  "description": "Byte Monitor \u2014 desktop hardware health & space monitor by HardPoint Networks",
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",
@@ -39,7 +39,16 @@
         "portable"
       ],
       "icon": "build/icon.png",
-      "requestedExecutionLevel": "requireAdministrator"
+      "requestedExecutionLevel": "requireAdministrator",
+      "extraResources": [
+        {
+          "from": "build/smartctl",
+          "to": "smartctl",
+          "filter": [
+            "**/*"
+          ]
+        }
+      ]
     },
     "nsis": {
       "oneClick": false,

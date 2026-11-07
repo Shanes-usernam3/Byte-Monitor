@@ -33,7 +33,25 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # Bundle smartctl (smartmontools, GPL-2.0) so full NVMe/SATA SMART works out of the box on Windows
+      - name: Fetch smartctl (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install smartmontools -y --no-progress | Out-Null
+          $src = 'C:\Program Files\smartmontools'
+          New-Item -ItemType Directory -Force build\smartctl | Out-Null
+          Copy-Item "$src\bin\smartctl.exe" build\smartctl\
+          Get-ChildItem "$src" -Recurse -Include COPYING*,LICENSE* | Select-Object -First 1 | Copy-Item -Destination build\smartctl\COPYING.txt
+          "smartctl from smartmontools (https://www.smartmontools.org), GPL-2.0. Source: https://github.com/smartmontools/smartmontools" | Set-Content build\smartctl\NOTICE.txt
+          & build\smartctl\smartctl.exe --version | Select-Object -First 1
       - run: ${{ matrix.cmd }}
+      - name: Check smartctl is bundled (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if (-not (Test-Path dist\win-unpacked\resources\smartctl\smartctl.exe)) { throw 'smartctl.exe missing from build' }
+          & dist\win-unpacked\resources\smartctl\smartctl.exe --version | Select-Object -First 1
       - name: Read version
         id: ver
         shell: bash
