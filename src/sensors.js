@@ -71,6 +71,8 @@ $ErrorActionPreference = 'SilentlyContinue'
 $engCat = $null; $memCat = $null
 try { $engCat = New-Object System.Diagnostics.PerformanceCounterCategory('GPU Engine'); [void]$engCat.ReadCategory() } catch { $engCat = $null }
 try { $memCat = New-Object System.Diagnostics.PerformanceCounterCategory('GPU Adapter Memory'); [void]$memCat.ReadCategory() } catch { $memCat = $null }
+$cpuPerf = $null; $cpuFreq = $null
+try { $cpuPerf = New-Object System.Diagnostics.PerformanceCounter('Processor Information', '% Processor Performance', '_Total'); $cpuFreq = New-Object System.Diagnostics.PerformanceCounter('Processor Information', 'Processor Frequency', '_Total'); [void]$cpuPerf.NextValue() } catch { $cpuPerf = $null }
 $prev = @{}; $i = 0; $hw = $null; $lhmOk = $true
 while ($true) {
   $o = @{}
@@ -93,6 +95,8 @@ while ($true) {
     $c = $memCat.ReadCategory(); $ded = $c['dedicated usage']; $sh = $c['shared usage']
     $o.mem = @($ded.Keys | ForEach-Object { @{ Name = $_; DedicatedUsage = $ded[$_].RawValue; SharedUsage = $sh[$_].RawValue } })
   } catch {} }
+  if ($cpuPerf) { try { $o.clk = [math]::Round($cpuFreq.NextValue() * $cpuPerf.NextValue() / 100) } catch {} } # live MHz, like Task Manager's Speed
+  if ($i % 40 -eq 0) { $o.cyc = @(Get-CimInstance -Namespace root/wmi -ClassName BatteryCycleCount | ForEach-Object { $_.CycleCount }) }
   if ($i % 4 -eq 0) {
     if (-not $lhmOk) { $o.acpi = @(Get-CimInstance -Namespace root/wmi -ClassName MSAcpi_ThermalZoneTemperature | ForEach-Object { $_.CurrentTemperature }) }
     $o.bat = @(Get-CimInstance Win32_Battery | Select-Object EstimatedChargeRemaining,BatteryStatus,EstimatedRunTime)
@@ -123,7 +127,9 @@ function startWinSensors() {
       try {
         const o = JSON.parse(chunk);
         win.latest = o; win.at = Date.now();
-        if (o.bat || o.pf || o.acpi) win.slow = { bat: o.bat, pf: o.pf, acpi: o.acpi };
+        if (o.bat || o.pf || o.acpi) win.slow = { ...(win.slow || {}), bat: o.bat, pf: o.pf, acpi: o.acpi };
+        if (o.cyc) win.slow = { ...(win.slow || {}), cyc: o.cyc };
+        if (o.clk) win.clk = { mhz: o.clk, at: Date.now() };
       } catch {}
     }
   });
@@ -297,6 +303,65 @@ function buildGpus(controllers) {
   return list.sort((a, b) => (a.integrated ? 1 : 0) - (b.integrated ? 1 : 0));
 }
 
+// ---------- smartctl (our own runner) ----------
+// systeminformation matches smartctl output to drives by serial number, but for
+// NVMe drives Windows reports an EUI-64 id ("5CDF_B803_30B0_1D2C.") instead of the
+// real serial, so the match fails and the data is dropped. We run smartctl
+// ourselves (bundled on Windows) and match by model name + capacity instead.
+function smartctlExe() {
+  const c = isWin
+    ? [process.resourcesPath && path.join(process.resourcesPath, 'smartctl', 'smartctl.exe'), 'C:\\Program Files\\smartmontools\\bin\\smartctl.exe']
+    : ['/usr/sbin/smartctl', '/usr/local/sbin/smartctl', '/usr/bin/smartctl'];
+  return c.find((p) => p && fs.existsSync(p)) || 'smartctl';
+}
+function runOut(cmd, args, timeout = 15000) { // smartctl uses non-zero exit bits for warnings — keep stdout anyway
+  return new Promise((resolve) => {
+    execFile(cmd, args, { timeout, windowsHide: true, maxBuffer: 8 * 1024 * 1024 }, (err, stdout) => resolve(stdout || null));
+  });
+}
+let smartCache = null, smartAt = 0;
+async function smartAll() {
+  if (smartCache && Date.now() - smartAt < 300000) return smartCache;
+  smartAt = Date.now();
+  const exe = smartctlExe();
+  const out = [];
+  try {
+    const scan = JSON.parse((await runOut(exe, ['--scan', '-j'])) || '{}');
+    for (const dev of scan.devices || []) {
+      if (!/^[\w/.,:\\-]+$/.test(String(dev.name || ''))) continue;
+      const args = ['-a', '-j'];
+      if (dev.type && /^[\w,-]+$/.test(dev.type)) args.push('-d', dev.type);
+      args.push(dev.name);
+      try { const data = JSON.parse((await runOut(exe, args)) || '{}'); if (data.model_name || data.serial_number) out.push(data); } catch {}
+    }
+  } catch {}
+  smartCache = out;
+  return out;
+}
+function matchSmart(disks, smart) {
+  const norm = (x) => String(x || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const used = new Set();
+  return disks.map((d) => {
+    if (d.smartData) return d.smartData;
+    let best = null, bestScore = 0;
+    smart.forEach((s, i) => {
+      if (used.has(i)) return;
+      const cap = (s.user_capacity && s.user_capacity.bytes) || s.nvme_total_capacity || 0;
+      let score = 0;
+      const a = norm(d.name || d.model), b = norm(s.model_name);
+      if (a && b && a === b) score += 4;
+      else if (a && b && (a.includes(b) || b.includes(a))) score += 3;
+      if (cap && d.size && Math.abs(cap - d.size) / d.size < 0.03) score += 2;
+      const sn = norm(s.serial_number), dn = norm(d.serialNum);
+      if (sn && dn && (sn === dn || sn.includes(dn) || dn.includes(sn))) score += 4;
+      if (score > bestScore) { best = i; bestScore = score; }
+    });
+    if (best == null || bestScore < 3) return null;
+    used.add(best);
+    return smart[best];
+  });
+}
+
 // Windows built-in drive health (no smartctl needed, needs admin):
 // Get-StorageReliabilityCounter gives temperature, wear, power-on hours, errors.
 let relCache = null, relAt = 0;
@@ -409,6 +474,12 @@ function diskHealth(d, rel) {
 }
 
 // ---------- Battery ----------
+// Lenovo reports e.g. "33941SunwodaL19D3PDA" (FRU id + maker + model) → "Sunwoda L19D3PDA"
+function batteryName(b) {
+  let s = [b.manufacturer, b.model].filter(Boolean).join(' ').trim();
+  s = s.replace(/^\d{3,}\s*/, '').replace(/^([A-Z][a-z]{2,})([A-Z0-9])/, '$1 $2');
+  return s || 'Battery';
+}
 function batteryHealth(b) {
   if (!b || !b.hasBattery) return { present: false };
   const design = b.designedCapacity || 0;
@@ -416,7 +487,7 @@ function batteryHealth(b) {
   const healthPct = design > 0 && full > 0 ? round(Math.min(100, (full / design) * 100), 1) : null;
   return {
     present: true,
-    model: [b.manufacturer, b.model].filter(Boolean).join(' ') || 'Battery',
+    model: batteryName(b),
     unit: b.capacityUnit || 'mWh',
     designCapacity: design,
     fullCapacity: full,
@@ -452,7 +523,7 @@ async function getStatic() {
   cache.gfxAt = Date.now();
   return {
     system: { manufacturer: system.manufacturer, model: system.model },
-    cpu: { brand: cpuName(cpu), cores: cpu.physicalCores, threads: cpu.cores, speed: cpu.speedMax || cpu.speed },
+    cpu: { brand: cpuName(cpu), cores: cpu.physicalCores, threads: cpu.cores, base: cpu.speed || null, max: cpu.speedMax && cpu.speedMax > (cpu.speed || 0) * 1.05 ? cpu.speedMax : null },
     os: { distro: os.distro, release: os.release, arch: os.arch, hostname: os.hostname, platform: os.platform },
     gpus: (graphics.controllers || []).filter((g) => !VIRTUAL_GPU.test(`${g.model} ${g.vendor}`)).map((g) => ({ model: g.model, vendor: g.vendor, vram: g.vram, integrated: isIntegrated(g) })),
     memModules: mem.map((m) => ({ size: m.size, type: m.type, speed: m.clockSpeed, slot: m.bank })),
@@ -480,7 +551,9 @@ async function sampleFast() {
     const m = await si.mem();
     mem = { total: m.total, used: m.active, pct: round((m.active / m.total) * 100), swapTotal: m.swaptotal, swapUsed: m.swapused };
   }
-  cache.fast = { load: round(load.currentLoad), coreLoads: load.cpus.map((c) => round(c.load, 0)), ghz: speed.avg, mem };
+  let ghz = speed.avg;
+  if (isWin) ghz = win.clk && Date.now() - win.clk.at < 10000 && win.clk.mhz > 100 ? round(win.clk.mhz / 1000, 2) : null; // Windows' own figure is a fixed registry value
+  cache.fast = { load: round(load.currentLoad), coreLoads: load.cpus.map((c) => round(c.load, 0)), ghz, mem };
 }
 
 async function graphicsList() {
@@ -509,12 +582,15 @@ async function batteryInfo() {
     cache.batteryAt = Date.now();
   }
   const b = { ...cache.battery };
+  const cyc = isWin && win.slow && win.slow.cyc && win.slow.cyc.find((c) => c > 0);
+  if (!b.cycleCount && cyc) b.cycleCount = cyc;
   const live = isWin && win.slow && win.slow.bat && win.slow.bat[0];
   if (live) { // live charge from the long-running reader
     if (live.EstimatedChargeRemaining != null) b.percent = live.EstimatedChargeRemaining;
     const st = live.BatteryStatus;
     b.isCharging = [6, 7, 8, 9].includes(st);
     b.acConnected = st !== 1;
+    b.timeRemaining = st === 1 && live.EstimatedRunTime > 0 && live.EstimatedRunTime < 100000 ? live.EstimatedRunTime : null; // minutes
     if (b.designedCapacity && b.maxCapacity) b.currentCapacity = Math.round((b.maxCapacity * b.percent) / 100);
   }
   return b;
@@ -601,7 +677,13 @@ async function getStorage() {
   return storageCache;
 }
 async function getStorageNow() {
-  const [layout, fsSize, rel] = await Promise.all([si.diskLayout().catch(() => []), si.fsSize(), winReliability()]);
+  const [layout, fsSize, rel, smart] = await Promise.all([si.diskLayout().catch(() => []), si.fsSize(), winReliability(), smartAll()]);
+  matchSmart(layout, smart).forEach((s, i) => {
+    if (!s) return;
+    layout[i].smartData = s;
+    if (s.smart_status && typeof s.smart_status.passed === 'boolean') layout[i].smartStatus = s.smart_status.passed ? 'Ok' : 'Predicted Failure';
+    if (s.temperature && s.temperature.current) layout[i].temperature = s.temperature.current;
+  });
   const norm = (x) => String(x || '').replace(/[\s_.\-]/g, '').toUpperCase();
   const relFor = (d) => rel.find((r) => (r.Serial && d.serialNum && (norm(r.Serial).includes(norm(d.serialNum)) || norm(d.serialNum).includes(norm(r.Serial))))
     || (r.Name && d.name && norm(r.Name) === norm(d.name)));
@@ -614,7 +696,7 @@ async function getStorageNow() {
 }
 
 // for scripts/perf-check.js
-const _debug = () => ({ winAlive: !!win.proc, exit: win.exit, err: win.err, winAgeMs: win.at ? Date.now() - win.at : null, keys: win.latest ? Object.keys(win.latest) : null,
+const _debug = () => ({ winAlive: !!win.proc, exit: win.exit, err: win.err, clk: win.clk, smartExe: smartctlExe(), winAgeMs: win.at ? Date.now() - win.at : null, keys: win.latest ? Object.keys(win.latest) : null,
   eng: win.latest && win.latest.eng ? win.latest.eng.length : null, mem: win.latest && win.latest.mem ? win.latest.mem.length : null,
   lhm: win.latest && win.latest.lhm ? win.latest.lhm.length : null, slow: win.slow, nv: { count: nv.count, rows: nv.rows.length, absent: nv.absent } });
 
