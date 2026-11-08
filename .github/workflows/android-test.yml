@@ -23,7 +23,7 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with: { node-version: 22 }
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with: { distribution: temurin, java-version: 21 }
       - name: Enable KVM
         run: |
@@ -55,12 +55,12 @@ jobs:
             adb logcat -d > screens/logcat.txt || true
             grep -E "Capacitor/Console|chromium|AndroidRuntime" screens/logcat.txt | grep -iE "error|exception|uncaught|fatal" | head -20 > screens/errors.txt || true
             echo "::notice title=emulator::screens taken, $(wc -l < screens/errors.txt) error lines"
-            while read -r l; do echo "::warning title=app error::${l:0:300}"; done < screens/errors.txt
+            cut -c1-300 screens/errors.txt | sed 's/^/::warning title=app error::/' || true
       - name: Post screens to a temporary pre-release
         if: always()
         run: |
           tag="ci-android-preview-${{ github.run_id }}"
           gh release create "$tag" screens/* --prerelease --title "CI Android preview (temporary)" --notes "Automated emulator screenshots; deleted automatically." --target "${{ github.sha }}"
           echo "::notice title=preview::$tag"
-          sleep 600
+          sleep 1200
           gh release delete "$tag" --yes --cleanup-tag
