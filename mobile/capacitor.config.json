@@ -3,5 +3,12 @@
   "appName": "Byte Monitor",
   "webDir": "www",
   "backgroundColor": "#060b10",
-  "android": { "backgroundColor": "#060b10" }
+  "android": {
+    "backgroundColor": "#060b10"
+  },
+  "plugins": {
+    "SystemBars": {
+      "style": "DARK"
+    }
+  }
 }

@@ -238,7 +238,7 @@ function renderOverviewSlow() {
   if (b.present) {
     const bg = pctGrade(b.healthPct);
     setHTMLIfChanged('#batteryMini', `<div class="card-head"><h3>Battery health</h3><span class="pill ${bg}">${esc(b.rating)}</span></div>
-      <div class="bat-top"><div class="big">${fmt(b.healthPct, 1)}<small>%</small></div><div class="tiny">of original capacity left<br>${b.cycles ? b.cycles + ' cycles · ' : ''}${fmt(b.chargePct)}% charged${b.charging ? ' ⚡' : ''}</div></div>
+      <div class="bat-top"><div class="big">${b.healthPct == null && b.estimated ? '<span style="font-size:22px">Estimating…</span>' : fmt(b.healthPct, 1) + '<small>%</small>'}</div><div class="tiny">${b.healthPct == null && b.estimated ? 'needs a few charge readings' : 'of original capacity left'}<br>${b.cycles ? b.cycles + ' cycles · ' : ''}${fmt(b.chargePct)}% charged${b.charging ? ' ⚡' : ''}</div></div>
       <div class="cap-compare">
         <div class="cap-row"><div class="cap-lbl">Designed max <b>${fmt(b.designCapacity)} ${esc(b.unit)}</b></div><div class="bar design"><i style="width:100%"></i></div></div>
         <div class="cap-row"><div class="cap-lbl">Current max <b>${fmt(b.fullCapacity)} ${esc(b.unit)}</b></div><div class="bar ${bg}"><i style="width:${b.healthPct ?? 0}%"></i></div></div>
@@ -363,7 +363,7 @@ function renderBattery() {
     <div class="card bat-visual">
       <div class="eyebrow">Capacity left</div>
       <div class="battery-shape"><i class="${g}" style="width:${b.healthPct ?? 0}%"></i></div>
-      <div class="big">${fmt(b.healthPct, 1)}<small>%</small></div>
+      <div class="big">${b.healthPct == null && b.estimated ? '<span style="font-size:24px">Estimating…</span>' : fmt(b.healthPct, 1) + '<small>%</small>'}</div>
       <span class="pill ${g}">${esc(b.rating)}</span>
     </div>
     <div class="card">

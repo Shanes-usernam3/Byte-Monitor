@@ -9,10 +9,15 @@
         <item name="colorAccent">@color/colorAccent</item>
     </style>
 
-    <style name="AppTheme.NoActionBar" parent="Theme.AppCompat.DayNight.NoActionBar">
+    <!-- Dark theme so the status/navigation bars match Byte Monitor (light icons on #060b10) -->
+    <style name="AppTheme.NoActionBar" parent="Theme.AppCompat.NoActionBar">
         <item name="windowActionBar">false</item>
         <item name="windowNoTitle">true</item>
         <item name="android:background">@null</item>
+        <item name="android:windowBackground">@color/bm_background</item>
+        <item name="android:statusBarColor">@color/bm_background</item>
+        <item name="android:navigationBarColor">@color/bm_background</item>
+        <item name="android:windowLightStatusBar">false</item>
     </style>
 
 
