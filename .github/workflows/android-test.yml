@@ -60,6 +60,7 @@ jobs:
         if: always()
         run: |
           tag="ci-android-preview-${{ github.run_id }}"
+          find screens -type f -size 0 -delete
           gh release create "$tag" screens/* --prerelease --title "CI Android preview (temporary)" --notes "Automated emulator screenshots; deleted automatically." --target "${{ github.sha }}"
           echo "::notice title=preview::$tag"
           sleep 1200
