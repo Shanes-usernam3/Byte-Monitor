@@ -1,0 +1,66 @@
+name: Android emulator test
+
+# Builds a debug APK, runs it on an Android emulator, checks for JavaScript
+# errors and takes screenshots. Screens are posted to a temporary pre-release
+# (removed again after 10 minutes) so they can be reviewed without artifacts.
+on:
+  workflow_dispatch:
+    inputs:
+      api:
+        description: Android API level
+        default: '34'
+
+permissions:
+  contents: write
+
+jobs:
+  emulator:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: 22 }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 21 }
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
+      - name: Build debug APK
+        run: |
+          cd mobile && npm ci && node scripts/build-www.js && npx cap sync android
+          cd android && chmod +x gradlew && ./gradlew --no-daemon assembleDebug
+      - name: Run on emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ inputs.api }}
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: |
+            adb install -r mobile/android/app/build/outputs/apk/debug/app-debug.apk
+            adb logcat -c
+            adb shell am start -n ca.hardpointnetworks.bytemonitor/.MainActivity
+            sleep 25
+            mkdir -p screens
+            adb exec-out screencap -p > screens/1-overview.png
+            adb shell input swipe 540 1700 540 600 300; sleep 2; adb exec-out screencap -p > screens/2-overview-scrolled.png
+            adb shell input tap 756 2290; sleep 4; adb exec-out screencap -p > screens/3-battery.png
+            adb shell input tap 324 2290; sleep 4; adb exec-out screencap -p > screens/4-sensors.png
+            adb shell input tap 972 2290; sleep 4; adb exec-out screencap -p > screens/5-system.png
+            adb logcat -d > screens/logcat.txt || true
+            grep -E "Capacitor/Console|chromium|AndroidRuntime" screens/logcat.txt | grep -iE "error|exception|uncaught|fatal" | head -20 > screens/errors.txt || true
+            echo "::notice title=emulator::screens taken, $(wc -l < screens/errors.txt) error lines"
+            while read -r l; do echo "::warning title=app error::${l:0:300}"; done < screens/errors.txt
+      - name: Post screens to a temporary pre-release
+        if: always()
+        run: |
+          tag="ci-android-preview-${{ github.run_id }}"
+          gh release create "$tag" screens/* --prerelease --title "CI Android preview (temporary)" --notes "Automated emulator screenshots; deleted automatically." --target "${{ github.sha }}"
+          echo "::notice title=preview::$tag"
+          sleep 600
+          gh release delete "$tag" --yes --cleanup-tag

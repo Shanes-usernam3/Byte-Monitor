@@ -1,0 +1,18 @@
+{
+  "name": "byte-monitor-mobile",
+  "private": true,
+  "description": "Byte Monitor for Android (Capacitor). Reuses the desktop UI from ../src/renderer.",
+  "scripts": {
+    "www": "node scripts/build-www.js",
+    "sync": "node scripts/build-www.js && npx cap sync android"
+  },
+  "dependencies": {
+    "@capacitor/android": "8.6.0",
+    "@capacitor/core": "8.6.0",
+    "@capacitor/filesystem": "8.1.5",
+    "@capacitor/share": "8.0.3"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.6.0"
+  }
+}

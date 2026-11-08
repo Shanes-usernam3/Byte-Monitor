@@ -12,6 +12,50 @@ permissions:
   contents: write
 
 jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - name: Version
+        id: ver
+        run: |
+          v=$(node -p "require('./package.json').version")
+          code=$(node -p "const [a,b,c]=require('./package.json').version.split('.').map(Number); a*10000+b*100+c")
+          echo "v=v$v" >> "$GITHUB_OUTPUT"; echo "name=$v" >> "$GITHUB_OUTPUT"; echo "code=$code" >> "$GITHUB_OUTPUT"
+      - name: Signing key (from repo secrets, if set)
+        env:
+          KS_B64: ${{ secrets.BM_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$KS_B64" ]; then echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"; echo "BM_KEYSTORE_FILE=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"; echo "signed with release key"
+          else echo "::warning title=android signing::BM_KEYSTORE_B64 secret not set - APK is signed with a temporary debug key (uninstall before updating)"; fi
+      - name: Build APK
+        env:
+          BM_VERSION_NAME: ${{ steps.ver.outputs.name }}
+          BM_VERSION_CODE: ${{ steps.ver.outputs.code }}
+          BM_KEYSTORE_PASSWORD: ${{ secrets.BM_KEYSTORE_PASSWORD }}
+          BM_KEY_ALIAS: bytemonitor
+        run: |
+          cd mobile && npm ci && node scripts/build-www.js && npx cap sync android
+          cd android && chmod +x gradlew && ./gradlew --no-daemon assembleRelease
+          mkdir -p ../../dist && cp app/build/outputs/apk/release/app-release.apk "../../dist/Byte-Monitor-${{ steps.ver.outputs.name }}-android.apk"
+          ls -la ../../dist
+      - name: Attach to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.v }}
+          name: Byte Monitor ${{ steps.ver.outputs.v }}
+          prerelease: true
+          files: dist/*.apk
+          fail_on_unmatched_files: true
+
+
   build:
     strategy:
       fail-fast: false

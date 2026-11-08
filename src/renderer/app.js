@@ -6,6 +6,7 @@ const gb = (b) => (b == null || Number.isNaN(b) ? '—' : b === 0 ? '0 GB' : (b 
 const tb = (b) => (b >= 1e12 ? (b / 1e12).toFixed(2) + ' TB' : (b / 1e9).toFixed(0) + ' GB');
 
 const state = { static: null, live: null, storage: null, meta: null, stats: {} };
+const isAndroid = () => state.meta?.platform === 'android'; // Android app: CPU load is hidden by the OS, so we show CPU speed
 
 // ---------- grading ----------
 const tempGrade = (t, warn = 80, crit = 92) => (t == null ? 'na' : t < warn ? 'good' : t < crit ? 'fair' : 'bad');
@@ -179,7 +180,7 @@ function buildOverview(L) {
   ov.score = makeGauge($('#scoreRing'), { sub: 'HEALTH SCORE' });
 
   $('#statCpu').innerHTML = `<div class="label">Processor</div><div class="sub">${esc(S?.cpu.brand || '')}</div><div class="gauge"></div>
-    <div class="row">Load <b class="k1"></b></div><div class="row">Hottest core <b class="k2"></b></div>`;
+    <div class="row">${isAndroid() ? 'CPU speed' : 'Load'} <b class="k1"></b></div><div class="row">${isAndroid() ? 'Avg clock' : 'Hottest core'} <b class="k2"></b></div>`;
   ov.cpu = makeGauge($('#statCpu .gauge'), { size: 112, stroke: 9, arc: 270 });
   ov.cpuK1 = $('#statCpu .k1'); ov.cpuK2 = $('#statCpu .k2');
 
@@ -261,9 +262,9 @@ function paintOverview(dt) {
   const hasT = L.cpu.temp != null;
   const cm = val(hasT ? 'cpu.temp' : 'cpu.load');
   const acpi = L.cpu.tempSource === 'acpi';
-  ov.cpu.draw((cm || 0) / (hasT ? 105 : 100), fmt(cm), hasT ? '°C' : '%', hasT ? tempGrade(tween.tgt.get('cpu.temp'), 80, 92) : 'good', hasT ? (acpi ? 'SYSTEM' : 'TEMP') : 'LOAD');
+  ov.cpu.draw((cm || 0) / (hasT ? 105 : 100), fmt(cm), hasT ? '°C' : '%', hasT ? tempGrade(tween.tgt.get('cpu.temp'), 80, 92) : 'good', hasT ? (acpi ? 'SYSTEM' : 'TEMP') : isAndroid() ? 'SPEED' : 'LOAD');
   setText(ov.cpuK1, fmt(val('cpu.load')) + '%');
-  setText(ov.cpuK2, val('cpu.tmax') != null ? fmt(val('cpu.tmax')) + '°C' : L.sensorDriver === 'missing' ? 'needs driver' : L.sensorDriver === 'starting' ? '…' : '—');
+  if (isAndroid()) setText(ov.cpuK2, val('ghz') ? fmt(val('ghz'), 2) + ' GHz' : '—'); else setText(ov.cpuK2, val('cpu.tmax') != null ? fmt(val('cpu.tmax')) + '°C' : L.sensorDriver === 'missing' ? 'needs driver' : L.sensorDriver === 'starting' ? '…' : '—');
 
   if (ov.gpu && L.gpus[ov.gpuSel]) {
     const i = ov.gpuSel, g = L.gpus[i];
@@ -308,7 +309,10 @@ function renderDiskMini() {
       <div class="dt">${d.temperature != null ? fmt(d.temperature) + '°C' : '—'}</div>
       <div><div style="display:flex;justify-content:space-between;font-size:11.5px;margin-bottom:4px"><span class="tiny">Health</span><b class="mono" style="color:${gradeColor(g)}">${d.healthPct != null ? d.healthPct + '%' : basic ? 'OK' : '—'}</b></div><div class="bar ${g}"><i style="width:${d.healthPct ?? (basic ? 100 : 0)}%;${basic ? 'opacity:.35' : ''}"></i></div></div></div>`;
     }).join('')
-    : '<div class="empty">Reading drives…</div>';
+    : (state.storage?.volumes || []).length
+      ? state.storage.volumes.map((v) => { const g = v.pct < 80 ? 'good' : v.pct < 92 ? 'fair' : 'bad';
+        return `<div class="disk-row"><div><div class="dn">${esc(v.mount)}</div><div class="dm">${tb(v.used)} of ${tb(v.size)} used</div></div><div class="dt">${fmt(v.pct)}%</div><div><div class="bar ${g}"><i style="width:${v.pct}%"></i></div></div></div>`; }).join('')
+      : '<div class="empty">Reading drives…</div>';
 }
 
 function renderStorage() {
@@ -337,7 +341,7 @@ function renderStorage() {
         </div>
         ${d.notes.map((n) => `<div class="note">ⓘ ${esc(n)}</div>`).join('')}
       </div></div>`;
-  }).join('') || '<div class="card empty">No drives found.</div>';
+  }).join('') || (isAndroid() ? '<div class="card empty">Phones don’t let apps read storage chip health (there’s no SMART like on a PC). Space used is shown below.</div>' : '<div class="card empty">No drives found.</div>');
 
   $('#volumes').innerHTML = S.volumes.map((v) => {
     const g = v.pct < 80 ? 'good' : v.pct < 92 ? 'fair' : 'bad';
@@ -363,10 +367,10 @@ function renderBattery() {
       <span class="pill ${g}">${esc(b.rating)}</span>
     </div>
     <div class="card">
-      <div class="card-head"><h3>${esc(b.model)}</h3><span class="tiny">${b.acConnected ? 'On AC power' : 'On battery'}${b.charging ? ' · charging' : ''}</span></div>
+      <div class="card-head"><h3>${esc(b.model)}</h3><span class="tiny">${b.acConnected ? (b.plugType ? b.plugType + ' charger' : 'On AC power') : 'On battery'}${b.charging ? ' · charging' : ''}</span></div>
       <div class="cap-compare">
         <div class="cap-row"><div class="cap-lbl">Designed max capacity (new) <b>${fmt(b.designCapacity)} ${esc(b.unit)}</b></div><div class="bar lg design"><i style="width:100%"></i></div></div>
-        <div class="cap-row"><div class="cap-lbl">Current max capacity (full charge) <b>${fmt(b.fullCapacity)} ${esc(b.unit)}</b></div><div class="bar lg ${g}"><i style="width:${b.healthPct ?? 0}%"></i></div></div>
+        <div class="cap-row"><div class="cap-lbl">Current max capacity (full charge)${b.estimated ? ' — estimated' : ''} <b>${fmt(b.fullCapacity)} ${esc(b.unit)}</b></div><div class="bar lg ${g}"><i style="width:${b.healthPct ?? 0}%"></i></div></div>
         <div class="cap-row"><div class="cap-lbl">Charge right now <b>${fmt(b.currentCapacity)} ${esc(b.unit)} · ${fmt(b.chargePct)}%</b></div><div class="bar lg"><i style="width:${b.chargePct ?? 0}%"></i></div></div>
       </div>
       <div class="kv">
@@ -374,10 +378,13 @@ function renderBattery() {
         <div><span>Wear</span><b>${fmt(b.wearPct, 1)}%${lost ? ' (−' + fmt(lost) + ' ' + esc(b.unit) + ')' : ''}</b></div>
         <div><span>Charge cycles</span><b>${b.cycles ?? '—'}</b></div>
         <div><span>Voltage</span><b>${b.voltage ? fmt(b.voltage, 2) + ' V' : '—'}</b></div>
-        <div><span>Time remaining</span><b>${b.timeRemaining ? Math.floor(b.timeRemaining / 60) + 'h ' + (b.timeRemaining % 60) + 'm' : b.acConnected ? 'On AC power' : '—'}</b></div>
+        ${b.estimated ? `<div><span>Temperature</span><b>${b.temp != null ? fmt(b.temp, 1) + '°C' : '—'}</b></div>
+        <div><span>${b.charging ? 'Charging at' : 'Using'}</span><b>${b.powerW != null ? Math.abs(b.powerW).toFixed(1) + ' W' : '—'}${b.currentMa != null ? ' · ' + Math.abs(b.currentMa) + ' mA' : ''}</b></div>
+        <div><span>Android says</span><b>${esc(b.androidHealth || '—')}</b></div>`
+    : `<div><span>Time remaining</span><b>${b.timeRemaining ? Math.floor(b.timeRemaining / 60) + 'h ' + (b.timeRemaining % 60) + 'm' : b.acConnected ? 'On AC power' : '—'}</b></div>`}
         <div><span>Rating</span><b>${esc(b.rating)}</b></div>
       </div>
-      <div class="explain">Health compares what the battery can hold when fully charged today against what it was designed to hold when new. 80%+ is healthy; 60–80% is normal wear but expect shorter runtime; under 60% is usually worth replacing.</div>
+      <div class="explain">Health compares what the battery can hold when fully charged today against what it was designed to hold when new. 80%+ is healthy; 60–80% is normal wear but expect shorter runtime; under 60% is usually worth replacing.${b.estimated ? ` <br><br>On Android the exact figure is only available to the phone maker's own apps, so Byte Monitor estimates it from the battery's charge counter${b.estimateMethod === 'battery driver' ? ' (this phone reports its learned capacity directly, so it should be close)' : b.estimateSamples ? ` — ${b.estimateSamples} readings so far; it gets more accurate over a few charges` : ''}.` : ''}</div>
     </div></div>`);
 }
 
@@ -423,9 +430,9 @@ function renderSystem() {
     <div class="card"><div class="card-head"><h3>Device</h3></div>
       ${spec('Hostname', S.os.hostname)}${spec('Make', S.system.manufacturer)}${spec('Model', S.system.model)}${spec('Operating system', `${S.os.distro} ${S.os.release}`)}${spec('Architecture', S.os.arch)}</div>
     <div class="card"><div class="card-head"><h3>Processor</h3></div>
-      ${spec('Model', S.cpu.brand)}${spec('Cores / threads', `${S.cpu.cores} / ${S.cpu.threads}`)}${spec(S.cpu.max ? 'Base / max clock' : 'Base clock', S.cpu.base ? S.cpu.base + (S.cpu.max ? ' / ' + S.cpu.max : '') + ' GHz' : '—')}${spec('Current clock', state.live?.cpu.ghz ? fmt(state.live.cpu.ghz, 2) + ' GHz' : '—')}${spec('Sensor source', L?.viaHelper && L.sensorDriver === 'ready' ? 'Built-in driver (PawnIO)' : L?.lhm ? 'LibreHardwareMonitor' : 'Windows / ACPI')}</div>
+      ${spec('Model', S.cpu.brand)}${spec('Cores / threads', `${S.cpu.cores} / ${S.cpu.threads}`)}${S.cpu.base ? spec(S.cpu.max ? 'Base / max clock' : 'Base clock', S.cpu.base + (S.cpu.max ? ' / ' + S.cpu.max : '') + ' GHz') : spec('Max clock', S.cpu.max ? S.cpu.max + ' GHz' : '—')}${spec('Current clock', state.live?.cpu.ghz ? fmt(state.live.cpu.ghz, 2) + ' GHz' : '—')}${spec('Sensor source', isAndroid() ? 'Android sensors' : L?.viaHelper && L.sensorDriver === 'ready' ? 'Built-in driver (PawnIO)' : L?.lhm ? 'LibreHardwareMonitor' : S.os.platform === 'linux' ? 'Linux sensors' : 'Windows / ACPI')}</div>
     <div class="card"><div class="card-head"><h3>Graphics</h3></div>
-      ${S.gpus.map((g) => spec(g.integrated ? 'Integrated' : 'Discrete', `${g.model}${g.vram && !g.integrated ? ' · ' + (g.vram / 1024).toFixed(0) + ' GB' : ''}`)).join('') || '<div class="empty">None</div>'}</div>
+      ${isAndroid() ? spec('GPU', 'Built into the ' + (S.cpu.brand || 'processor')) : ''}${S.gpus.map((g) => spec(g.integrated ? 'Integrated' : 'Discrete', `${g.model}${g.vram && !g.integrated ? ' · ' + (g.vram / 1024).toFixed(0) + ' GB' : ''}`)).join('') || (isAndroid() ? '' : '<div class="empty">None</div>')}</div>
     <div class="card"><div class="card-head"><h3>Memory modules</h3></div>
       ${(S.memSlots?.slots?.length ? S.memSlots.slots : S.memModules.map((m, i) => ({ label: m.slot || 'Slot ' + (i + 1), ...m }))).map((m) => spec(m.label, m.empty ? 'Empty' : `${gb(m.size)} ${m.type || ''} ${m.speed ? m.speed + ' MT/s' : ''}`)).join('') || '<div class="empty">Not reported</div>'}</div>
     <div class="card about"><div class="card-head"><h3>About</h3></div>
@@ -544,7 +551,7 @@ async function pollLive() {
 
     track('cpu.temp', 'Processor', L.cpu.tempSource === 'acpi' ? 'System temp (ACPI — not the CPU die)' : 'CPU package', L.cpu.temp, '°C', 105);
     L.cpu.coreTemps.forEach((t, i) => track('cpu.core' + i, 'Processor', `${(L.cpu.coreNames && L.cpu.coreNames[i]) || 'Core #' + i} temp`, t, '°C', 105));
-    track('cpu.load', 'Processor', 'Total load', L.cpu.load, '%');
+    track('cpu.load', 'Processor', isAndroid() ? 'CPU speed (% of max)' : 'Total load', L.cpu.load, '%');
     track('cpu.clock', 'Processor', 'Avg clock', L.cpu.ghz, 'GHz', 6);
     L.gpus.forEach((gg, i) => {
       const n = L.gpus.length > 1 ? (gg.integrated ? 'Integrated GPU ' : 'Discrete GPU ') : 'GPU ';
@@ -558,6 +565,11 @@ async function pollLive() {
     L.extraTemps.forEach((t) => track('x.' + t.name, 'Board', t.name, t.value, '°C', 105));
     L.fans.forEach((f) => track('fan.' + f.name, 'Fans', f.name, f.rpm, 'RPM', 5000));
     track('mem', 'Memory', 'RAM in use', L.mem.pct, '%');
+    if (L.battery.present && L.battery.estimated) {
+      track('bat.t', 'Battery', 'Temperature', L.battery.temp, '°C', 60);
+      track('bat.p', 'Battery', L.battery.charging ? 'Charging power' : 'Power draw', L.battery.powerW != null ? Math.abs(L.battery.powerW) : null, 'W', 45);
+    }
+    if (L.android && L.android.thermalHeadroom != null) track('thermal.h', 'Processor', 'Thermal headroom (1.0 = throttling)', L.android.thermalHeadroom, '', 1.2);
     if (L.battery.present) {
       track('bat.c', 'Battery', 'Charge level', L.battery.chargePct, '%');
       track('bat.v', 'Battery', 'Voltage', L.battery.voltage, 'V', 20);
@@ -566,6 +578,7 @@ async function pollLive() {
 
     const lg = document.querySelector('.legend');
     if (lg) setText(lg.lastChild, L.cpu.tempSource === 'acpi' ? 'System temp °C' : 'Temp °C');
+    if (lg && isAndroid() && lg.childNodes[1]) lg.childNodes[1].textContent = 'CPU speed %';
     renderOverviewSlow();
     if ($('#page-battery').classList.contains('active')) renderBattery();
     if ($('#page-thermals').classList.contains('active')) renderSensors();
@@ -622,19 +635,21 @@ document.addEventListener('click', (e) => {
   if (n) go(n.dataset.page || n.dataset.goto);
 });
 $('#btnResetMinMax').onclick = () => { state.stats = {}; sensorUI.sig = null; renderSensors(); };
-$('#btnReport').onclick = async () => {
+const saveReport = async () => {
   if (!state.live || !state.static) return;
   const name = `health-report-${state.static.os.hostname}-${new Date().toISOString().slice(0, 10)}.html`;
   const r = await window.byte.saveReport(buildReport(), name);
   if (r.saved) toast('Report saved');
 };
+$('#btnReport').onclick = saveReport;
+if ($('#btnReport2')) $('#btnReport2').onclick = saveReport;
 function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.remove('hidden'); setTimeout(() => t.classList.add('hidden'), 2500); }
 
 // ---------- boot ----------
 (async () => {
   state.meta = await window.byte.meta();
   if (state.meta.demo) $('#demoBadge').classList.remove('hidden');
-  $('#srcNote').textContent = `v${state.meta.version} · ${state.meta.platform === 'win32' ? 'Windows' : 'Linux'}`;
+  $('#srcNote').textContent = `v${state.meta.version} · ${{ win32: 'Windows', android: 'Android' }[state.meta.platform] || 'Linux'}`;
   const applyStatic = (S) => {
     if (!S || S.error) return;
     state.static = S;
